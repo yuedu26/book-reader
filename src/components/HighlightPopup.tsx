@@ -12,11 +12,16 @@ interface Props {
 }
 
 export default function TextSelectionPopup({ x, y, text, onCopy, onHighlight, onNote, onTranslate, onClose }: Props) {
+  // 计算弹窗位置，确保不超出屏幕右侧
+  const popupWidth = 280; // 4个按钮 * 70px
+  const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 375;
+  const adjustedX = Math.min(Math.max(8, x), screenWidth - popupWidth - 8);
+
   return (
     <>
       <div
         className="text-selection-popup"
-        style={{ left: Math.max(8, x), top: y }}
+        style={{ left: adjustedX, top: y }}
       >
         <button className="popup-action-btn" onClick={onCopy} title="复制">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

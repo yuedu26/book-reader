@@ -277,6 +277,13 @@ a { color: var(--primary); text-decoration: none; }
   border: none !important;
 }
 
+/* 禁用 iframe 内 Safari 原生文本选择菜单 */
+.reader-viewer iframe {
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+
 /* Reader toolbar */
 .reader-toolbar {
   position: absolute;

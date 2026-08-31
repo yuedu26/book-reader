@@ -200,7 +200,7 @@ export default function Reader() {
                 if ((doc as any).__pageClickBound) return;
                 (doc as any).__pageClickBound = true;
                 
-                // 点击翻页
+                // 点击翻页（桌面端）
                 doc.addEventListener('click', (ev: MouseEvent) => {
                   // 有选中文本时不翻页，避免与文本选择菜单冲突
                   const win = doc.defaultView || doc.ownerDocument?.defaultView;
@@ -219,6 +219,41 @@ export default function Reader() {
                     setShowToolbar(prev => !prev);
                   }
                 });
+
+                // 触摸翻页（iOS/移动端）
+                let touchStartX = 0;
+                let touchStartY = 0;
+                doc.addEventListener('touchstart', (ev: TouchEvent) => {
+                  const touch = ev.touches[0];
+                  touchStartX = touch.clientX;
+                  touchStartY = touch.clientY;
+                }, { passive: true });
+
+                doc.addEventListener('touchend', (ev: TouchEvent) => {
+                  // 有选中文本时不翻页
+                  const win = doc.defaultView || doc.ownerDocument?.defaultView;
+                  const sel = win?.getSelection?.()?.toString?.();
+                  if (sel && sel.trim().length > 0) return;
+
+                  const touch = ev.changedTouches[0];
+                  const deltaX = Math.abs(touch.clientX - touchStartX);
+                  const deltaY = Math.abs(touch.clientY - touchStartY);
+                  
+                  // 判断是点击（移动距离小于10px）而不是滑动
+                  if (deltaX < 10 && deltaY < 10) {
+                    const width = doc.documentElement?.clientWidth || doc.body?.clientWidth || 0;
+                    if (!width) return;
+                    const x = touch.clientX;
+                    setSelectionPopup(null);
+                    if (x < width * 0.3) {
+                      rendition.prev();
+                    } else if (x > width * 0.7) {
+                      rendition.next();
+                    } else {
+                      setShowToolbar(prev => !prev);
+                    }
+                  }
+                }, { passive: true });
 
                 // iOS Safari 兼容：mouseup 事件检测文本选择
                 doc.addEventListener('mouseup', (ev: MouseEvent) => {
@@ -538,9 +573,21 @@ export default function Reader() {
       }
     }
     
-    // 使用 Google Translate 在新窗口打开
-    const translateUrl = `https://translate.google.com/?sl=auto&tl=zh-CN&text=${encodeURIComponent(text)}`;
-    window.open(translateUrl, '_blank');
+    // 检测是否是 iOS 设备
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    
+    if (isIOS) {
+      // iOS 设备：使用系统词典查询
+      // 使用 dict:// URL scheme 调用系统词典
+      const dictUrl = `dict://${encodeURIComponent(text)}`;
+      window.location.href = dictUrl;
+    } else {
+      // 非 iOS 设备：使用 Google Translate
+      const translateUrl = `https://translate.google.com/?sl=auto&tl=zh-CN&text=${encodeURIComponent(text)}`;
+      window.open(translateUrl, '_blank');
+    }
+    
     setSelectionPopup(null);
   };
 
