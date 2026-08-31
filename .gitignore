@@ -1,0 +1,30 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+
+# npm 缓存
+.npm-cache/
+
+# npm lock 文件（让 GitHub Actions 生成）
+package-lock.json
+
+# Vercel
+.vercel/
+
+# 测试文件
+tests/
+test-runner.cjs
+test-runner.js
+test-runner.ts
+test-logic.ts
+test-epub.html
+simple-test.html
+browser-test.js
+TEST-REPORT.md
+TESTING-GUIDE.md
+
+# 系统文件
+.DS_Store
+Thumbs.db
