@@ -7,7 +7,7 @@ import Reader from './pages/Reader';
 import Vocabulary from './pages/Vocabulary';
 import Stats from './pages/Stats';
 import {
-  BookIcon, ReaderIcon, VocabIcon, StatsIcon,
+  BookIcon, NoteIcon, StatsIcon,
 } from './components/Icons';
 
 function TabBar() {
@@ -20,7 +20,7 @@ function TabBar() {
 
   const tabs = [
     { path: '/', label: '书架', icon: BookIcon },
-    { path: '/vocabulary', label: '生词本', icon: VocabIcon },
+    { path: '/vocabulary', label: '笔记', icon: NoteIcon },
     { path: '/stats', label: '统计', icon: StatsIcon },
   ];
 
@@ -74,6 +74,12 @@ function BackupReminder() {
 function AppContent() {
   const settings = useAppStore(s => s.settings);
   const theme = themeMap[settings.theme];
+
+  // 让 iOS 顶部状态栏/地址栏颜色跟随当前主题（阅读背景色）
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    meta?.setAttribute('content', theme.bg);
+  }, [settings.theme, theme.bg]);
 
   return (
     <div className="app-container" data-theme={settings.theme} style={{

@@ -1,4 +1,4 @@
-import type { BackupData } from '@/types';
+import type { BackupData, Book, Highlight, VocabularyWord } from '@/types';
 import { useAppStore } from '@/stores';
 
 /**
@@ -134,4 +134,69 @@ export function shouldRemindBackup(): boolean {
   // 已经备份过，检查是否超过7天
   const daysSince = (Date.now() - lastBackup) / (1000 * 60 * 60 * 24);
   return daysSince >= 7;
+}
+
+/**
+ * 下载文本文件（内部工具）
+ */
+function downloadText(filename: string, text: string): void {
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function bookTitleOf(books: Book[], bookId: string): string {
+  return books.find(b => b.id === bookId)?.title || '未知书籍';
+}
+
+/**
+ * 生成生词本文本（供导出与「复制全部」复用）
+ */
+export function buildVocabularyText(words: VocabularyWord[], books: Book[]): string {
+  let text = `生词本导出\n导出时间：${new Date().toLocaleString()}\n共 ${words.length} 个生词\n${'='.repeat(40)}\n\n`;
+  words.forEach((w, i) => {
+    text += `${i + 1}. ${w.word}\n`;
+    text += `   来源：${bookTitleOf(books, w.bookId)}${w.chapterTitle ? ' · ' + w.chapterTitle : ''}\n`;
+    if (w.context) text += `   上下文：${w.context}\n`;
+    if (w.definition) text += `   释义：${w.definition}\n`;
+    text += `   复习：${w.reviewCount} 次\n\n`;
+  });
+  if (words.length === 0) text += `（暂无生词）\n`;
+  return text;
+}
+
+/**
+ * 导出生词本为 TXT
+ */
+export function exportVocabularyAsText(words: VocabularyWord[], books: Book[]): void {
+  downloadText(`生词本_${new Date().toISOString().slice(0, 10)}.txt`, buildVocabularyText(words, books));
+}
+
+/**
+ * 生成划线/想法文本（notesOnly=true 时只导出带想法的条目）
+ */
+export function buildHighlightsText(highlights: Highlight[], books: Book[], notesOnly: boolean): string {
+  const list = (notesOnly ? highlights.filter(h => h.note && h.note.trim().length > 0) : highlights)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const label = notesOnly ? '想法' : '划线';
+  let text = `${label}导出\n导出时间：${new Date().toLocaleString()}\n共 ${list.length} 条${label}\n${'='.repeat(40)}\n\n`;
+  list.forEach((h, i) => {
+    text += `[${i + 1}] ${h.text}\n`;
+    if (h.note && h.note.trim()) text += `  想法：${h.note}\n`;
+    text += `  来源：${bookTitleOf(books, h.bookId)}\n`;
+    text += `  时间：${new Date(h.updatedAt).toLocaleString()}\n\n`;
+  });
+  if (list.length === 0) text += `（暂无${label}）\n`;
+  return text;
+}
+
+/**
+ * 导出划线/想法为 TXT
+ */
+export function exportHighlightsAsText(highlights: Highlight[], books: Book[], notesOnly: boolean): void {
+  downloadText(`${notesOnly ? '想法' : '划线'}_${new Date().toISOString().slice(0, 10)}.txt`, buildHighlightsText(highlights, books, notesOnly));
 }

@@ -3,6 +3,7 @@ import type {
   Book, Highlight, Bookmark, VocabularyWord,
   ReadingStat, ReadingSettings, ThemeName,
 } from '@/types';
+import { localDateStr } from '@/utils';
 
 // 主题颜色映射
 export const themeMap: Record<ThemeName, { bg: string; text: string; name: string }> = {
@@ -19,6 +20,7 @@ const defaultSettings: ReadingSettings = {
   theme: 'white',
   lineHeight: 1.8,
   pageMode: 'paginated',
+  highlightColor: '#FFEB3B',
 };
 
 const STORAGE_KEY = 'reader_pwa_data';
@@ -85,6 +87,10 @@ interface AppState extends PersistedState {
 
   // 备份
   setLastBackup: (ts: number) => void;
+
+  // 跨页定位（从笔记页跳转到阅读页的指定划线/想法位置，不持久化）
+  navigateTarget: { bookId: string; cfiRange: string } | null;
+  setNavigateTarget: (t: { bookId: string; cfiRange: string } | null) => void;
 
   // 全量恢复
   restoreAll: (data: PersistedState) => void;
@@ -189,7 +195,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // 统计
   addReadingTime: (bookId, seconds) => set((s) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = localDateStr(new Date());
     const existing = s.readingStats.find(r => r.bookId === bookId && r.date === today);
     const readingStats = existing
       ? s.readingStats.map(r =>
@@ -216,6 +222,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     persist(next);
     return next;
   }),
+
+  // 跨页定位（瞬时状态，不持久化）
+  navigateTarget: null,
+  setNavigateTarget: (t) => set({ navigateTarget: t }),
 
   // 全量恢复
   restoreAll: (data) => set(() => {

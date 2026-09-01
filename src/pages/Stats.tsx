@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAppStore } from '../stores';
-import { formatDuration, formatDate } from '../utils';
+import { formatDuration, formatDate, localDateStr } from '../utils';
 import { StatsIcon } from '../components/Icons';
 
 export default function Stats() {
@@ -10,7 +10,7 @@ export default function Stats() {
 
   // Calculate totals
   const totalSeconds = readingStats.reduce((sum, s) => sum + s.duration, 0);
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = localDateStr(new Date());
   const todaySeconds = readingStats
     .filter(s => s.date === todayStr)
     .reduce((sum, s) => sum + s.duration, 0);
@@ -19,7 +19,7 @@ export default function Stats() {
   const last7Days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() - (6 - i));
-    const dateStr = d.toISOString().split('T')[0];
+    const dateStr = localDateStr(d);
     const daySeconds = readingStats
       .filter(s => s.date === dateStr)
       .reduce((sum, s) => sum + s.duration, 0);

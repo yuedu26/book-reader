@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore, themeMap } from '../stores';
 import { getEpubFile } from '../services/db';
-import { generateId } from '../utils';
+import { generateId, copyTextToClipboard } from '../utils';
 import {
   ChevronLeftIcon, ChevronRightIcon, CloseIcon,
   ListIcon, SettingsIcon, BookmarkIcon, BookmarkFilledIcon,
@@ -16,6 +16,11 @@ import TextSelectionPopup from '../components/HighlightPopup';
 import { exportNotes } from '../services/backup';
 import type { Chapter, Highlight } from '../types';
 
+// epub.js 高亮是 SVG 矩形，颜色通过 attributes 的 `fill` 传递
+function highlightStyles(color: string) {
+  return { fill: color, 'fill-opacity': 0.5, 'mix-blend-mode': 'multiply' };
+}
+
 export default function Reader() {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
@@ -27,6 +32,7 @@ export default function Reader() {
   const updateBook = useAppStore(s => s.updateBook);
   const settings = useAppStore(s => s.settings);
   const addReadingTime = useAppStore(s => s.addReadingTime);
+  const updateSettings = useAppStore(s => s.updateSettings);
   const highlights = useAppStore(s => s.highlights.filter(h => h.bookId === bookId));
   const addHighlight = useAppStore(s => s.addHighlight);
   const removeHighlight = useAppStore(s => s.removeHighlight);
@@ -47,7 +53,7 @@ export default function Reader() {
   const [currentSpineIndex, setCurrentSpineIndex] = useState(0);
   const [totalSpineItems, setTotalSpineItems] = useState(0);
   const [selectionPopup, setSelectionPopup] = useState<{
-    x: number; y: number; text: string; cfiRange: string;
+    y: number; text: string; cfiRange: string; isSingleWord: boolean;
   } | null>(null);
   const [noteDialog, setNoteDialog] = useState<{
     highlightId: string; text: string; existingNote?: string;
@@ -188,95 +194,58 @@ export default function Reader() {
             setCurrentChapterTitle(title || '');
           }
 
-          // 在 iframe 内容上绑定点击分页（左/右翻页，中间显示工具栏）
-          // 延迟执行确保 iframe 内容已加载
-          setTimeout(() => {
-            try {
-              const contents = rendition.getContents?.() ?? [];
-              console.log('[Reader] Binding click events to', contents.length, 'contents');
-              contents.forEach((c: any) => {
-                const doc = c?.document;
-                if (!doc) return;
-                if ((doc as any).__pageClickBound) return;
-                (doc as any).__pageClickBound = true;
-                
-                // 点击翻页（桌面端）
-                doc.addEventListener('click', (ev: MouseEvent) => {
-                  // 有选中文本时不翻页，避免与文本选择菜单冲突
-                  const win = doc.defaultView || doc.ownerDocument?.defaultView;
-                  const sel = win?.getSelection?.()?.toString?.();
-                  if (sel && sel.trim().length > 0) return;
+          // 点击翻页与文本选择统一在 rendered 事件里绑定（见 bindPageEvents）
+        });
 
-                  const width = doc.documentElement?.clientWidth || doc.body?.clientWidth || 0;
-                  if (!width) return;
-                  const x = ev.clientX;
-                  setSelectionPopup(null);
-                  if (x < width * 0.3) {
-                    rendition.prev();
-                  } else if (x > width * 0.7) {
-                    rendition.next();
-                  } else {
-                    setShowToolbar(prev => !prev);
-                  }
-                });
+        // 绑定点击翻页与文本选择（每次小节渲染后对新 document 绑定，WeakSet 去重）
+        const boundDocs = new WeakSet<any>();
 
-                // 触摸翻页（iOS/移动端）
-                let touchStartX = 0;
-                let touchStartY = 0;
-                doc.addEventListener('touchstart', (ev: TouchEvent) => {
-                  const touch = ev.touches[0];
-                  touchStartX = touch.clientX;
-                  touchStartY = touch.clientY;
-                }, { passive: true });
+        const bindPageEvents = (doc: any) => {
+          if (!doc || boundDocs.has(doc)) return;
+          boundDocs.add(doc);
 
-                doc.addEventListener('touchend', (ev: TouchEvent) => {
-                  // 有选中文本时不翻页
-                  const win = doc.defaultView || doc.ownerDocument?.defaultView;
-                  const sel = win?.getSelection?.()?.toString?.();
-                  if (sel && sel.trim().length > 0) return;
+          // 点击翻页：桌面与移动端 tap 都触发 click，避免 touchend+click 双翻页
+          doc.addEventListener('click', (ev: MouseEvent) => {
+            const win = doc.defaultView || doc.ownerDocument?.defaultView;
+            const sel = win?.getSelection?.()?.toString?.();
+            if (sel && sel.trim().length > 0) return;
 
-                  const touch = ev.changedTouches[0];
-                  const deltaX = Math.abs(touch.clientX - touchStartX);
-                  const deltaY = Math.abs(touch.clientY - touchStartY);
-                  
-                  // 判断是点击（移动距离小于10px）而不是滑动
-                  if (deltaX < 10 && deltaY < 10) {
-                    const width = doc.documentElement?.clientWidth || doc.body?.clientWidth || 0;
-                    if (!width) return;
-                    const x = touch.clientX;
-                    setSelectionPopup(null);
-                    if (x < width * 0.3) {
-                      rendition.prev();
-                    } else if (x > width * 0.7) {
-                      rendition.next();
-                    } else {
-                      setShowToolbar(prev => !prev);
-                    }
-                  }
-                }, { passive: true });
-
-                // iOS Safari 兼容：mouseup 事件检测文本选择
-                doc.addEventListener('mouseup', (ev: MouseEvent) => {
-                  const win = doc.defaultView || doc.ownerDocument?.defaultView;
-                  const sel = win?.getSelection?.()?.toString?.();
-                  if (sel && sel.trim().length > 0) {
-                    // 延迟触发 selected 事件
-                    setTimeout(() => {
-                      const range = win?.getSelection()?.getRangeAt(0);
-                      if (range) {
-                        const cfiRange = rendition.cfis?.fromRange(range);
-                        if (cfiRange) {
-                          rendition.emit('selected', cfiRange, sel);
-                        }
-                      }
-                    }, 100);
-                  }
-                });
-              });
-            } catch (e) {
-              console.warn('[Reader] Failed to bind click events:', e);
+            const width = doc.documentElement?.clientWidth || doc.body?.clientWidth || 0;
+            if (!width) return;
+            const x = ev.clientX;
+            setSelectionPopup(null);
+            if (x < width * 0.3) {
+              rendition.prev();
+            } else if (x > width * 0.7) {
+              rendition.next();
+            } else {
+              setShowToolbar(prev => !prev);
             }
-          }, 500);
+          });
+
+          // iOS Safari 兼容：mouseup 触发文本选择
+          doc.addEventListener('mouseup', () => {
+            const win = doc.defaultView || doc.ownerDocument?.defaultView;
+            const sel = win?.getSelection?.()?.toString?.();
+            if (sel && sel.trim().length > 0) {
+              setTimeout(() => {
+                const range = win?.getSelection()?.getRangeAt(0);
+                if (range) {
+                  const cfiRange = rendition.cfis?.fromRange(range);
+                  if (cfiRange) rendition.emit('selected', cfiRange, sel);
+                }
+              }, 100);
+            }
+          });
+        };
+
+        rendition.on('rendered', () => {
+          try {
+            const contents = rendition.getContents?.() ?? [];
+            contents.forEach((c: any) => bindPageEvents(c?.document));
+          } catch (e) {
+            console.warn('[Reader] Failed to bind page events:', e);
+          }
         });
 
         // 监听文本选择
@@ -293,21 +262,24 @@ export default function Reader() {
             console.log('[Reader] Text from range:', text);
           }
           
-          if (!text.trim()) return;
+          const trimmed = text.trim();
+          if (!trimmed) return;
 
           const rect = range.getBoundingClientRect();
           const viewerRect = container.getBoundingClientRect();
+          // 单个英文单词（可含连字符/撇号）才显示「查词」按钮
+          const isSingleWord = /^[A-Za-z]+(?:['’-][A-Za-z]+)*$/.test(trimmed);
           setSelectionPopup({
-            x: Math.min(rect.left - viewerRect.left, viewerRect.width - 200),
             y: rect.bottom - viewerRect.top + 8,
-            text: text.trim(),
+            text: trimmed,
             cfiRange,
+            isSingleWord,
           });
         });
 
-        // 监听高亮点击
+        // 监听高亮点击（使用最新 store 快照，避免闭包拿到初始 highlights）
         rendition.on('markClicked', (cfiRange: string, data: any) => {
-          const hl = highlights.find(h => h.cfiRange === cfiRange);
+          const hl = useAppStore.getState().highlights.find(h => h.cfiRange === cfiRange);
           if (hl) {
             setNoteDialog({
               highlightId: hl.id,
@@ -317,19 +289,25 @@ export default function Reader() {
           }
         });
 
-        // 恢复已有高亮
-        highlights.forEach(hl => {
-          try {
-            rendition.annotations.add('highlight', hl.cfiRange, {}, undefined, hl.color);
-          } catch (err) {
-            console.warn('[Reader] Failed to restore highlight:', err);
-          }
-        });
+        // 恢复已有高亮（用当前 store 里的最新数据，annotation 会在各小节渲染时自动注入）
+        useAppStore.getState().highlights
+          .filter(hl => hl.bookId === bookId)
+          .forEach(hl => {
+            try {
+              rendition.annotations.add('highlight', hl.cfiRange, {}, undefined, undefined, highlightStyles(hl.color));
+            } catch (err) {
+              console.warn('[Reader] Failed to restore highlight:', err);
+            }
+          });
 
         // 显示内容
         console.log('[Reader] Displaying content...');
         try {
-          if (book?.currentLocation) {
+          const target = useAppStore.getState().navigateTarget;
+          if (target && target.bookId === bookId) {
+            await rendition.display(target.cfiRange);
+            useAppStore.getState().setNavigateTarget(null);
+          } else if (book?.currentLocation) {
             await rendition.display(book.currentLocation);
           } else {
             await rendition.display();
@@ -387,14 +365,27 @@ export default function Reader() {
 
     initEpub();
 
-    return () => {
-      destroyed = true;
-      // 记录阅读时长
+    // 结算本次阅读时长（累加进统计并重置起点）
+    const flushReadingTime = () => {
       const elapsed = (Date.now() - readingStartRef.current) / 1000;
+      readingStartRef.current = Date.now();
       if (elapsed > 5 && bookId) {
         addReadingTime(bookId, elapsed);
       }
-      readingStartRef.current = Date.now();
+    };
+
+    // 切后台 / 锁屏 / 切标签页时及时落账，避免本次时长丢失
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        flushReadingTime();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      destroyed = true;
+      flushReadingTime();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
 
       // 清理
       if (renditionRef.current) {
@@ -411,20 +402,23 @@ export default function Reader() {
     if (!rendition) return;
     const theme = themeMap[settings.theme];
     const isDark = settings.theme === 'dark';
+    const fontStack = `${settings.fontFamily}, "Noto Serif SC", serif`;
 
     rendition.themes.register('custom', {
       'body': {
         'background': theme.bg + ' !important',
         'color': theme.text + ' !important',
-        'font-family': `${settings.fontFamily}, "Noto Serif SC", serif`,
-        'font-size': `${settings.fontSize}px`,
-        'line-height': `${settings.lineHeight}`,
+        'font-family': fontStack + ' !important',
+        'font-size': `${settings.fontSize}px !important`,
+        'line-height': `${settings.lineHeight} !important`,
         'padding': '20px !important',
         'margin': '0 !important',
       },
-      'p, div, span, li': {
-        'color': theme.text + ' !important',
-        'font-family': `${settings.fontFamily}, "Noto Serif SC", serif !important`,
+      // 所有元素继承 body 的字号/行高/字体，确保字号调节真正生效
+      '*': {
+        'font-family': fontStack + ' !important',
+        'font-size': 'inherit !important',
+        'line-height': 'inherit !important',
       },
       'a': {
         'color': (isDark ? '#66aaff' : '#007AFF') + ' !important',
@@ -482,17 +476,18 @@ export default function Reader() {
   };
 
   // Handle copy
-  const handleCopy = () => {
+  const handleCopy = async () => {
     if (!selectionPopup) return;
     const text = typeof selectionPopup.text === 'string' 
       ? selectionPopup.text 
       : String(selectionPopup.text || '');
     
-    navigator.clipboard.writeText(text).then(() => {
+    const ok = await copyTextToClipboard(text);
+    if (ok) {
       console.log('[Reader] Text copied to clipboard');
-    }).catch(err => {
-      console.error('[Reader] Failed to copy text:', err);
-    });
+    } else {
+      console.error('[Reader] Failed to copy text');
+    }
     setSelectionPopup(null);
   };
 
@@ -511,12 +506,12 @@ export default function Reader() {
       chapterHref: book?.currentChapterHref || '',
       cfiRange: selectionPopup.cfiRange,
       text,
-      color: '#FFEB3B', // 默认黄色高亮
+      color: settings.highlightColor,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
     addHighlight(hl);
-    renditionRef.current?.annotations.add('highlight', hl.cfiRange, {}, undefined, hl.color);
+    renditionRef.current?.annotations.add('highlight', hl.cfiRange, {}, undefined, undefined, highlightStyles(hl.color));
     setSelectionPopup(null);
   };
 
@@ -535,19 +530,19 @@ export default function Reader() {
       chapterHref: book?.currentChapterHref || '',
       cfiRange: selectionPopup.cfiRange,
       text,
-      color: '#FFEB3B',
+      color: settings.highlightColor,
       note: '',
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
     addHighlight(hl);
-    renditionRef.current?.annotations.add('highlight', hl.cfiRange, {}, undefined, hl.color);
+    renditionRef.current?.annotations.add('highlight', hl.cfiRange, {}, undefined, undefined, highlightStyles(hl.color));
     setSelectionPopup(null);
     setNoteDialog({ highlightId: hl.id, text: hl.text });
   };
 
-  // Handle translate
-  const handleTranslate = () => {
+  // Handle lookup（查词：记录生词 + 打开系统词典）
+  const handleLookup = () => {
     if (!selectionPopup) return;
     const text = typeof selectionPopup.text === 'string' 
       ? selectionPopup.text 
@@ -640,6 +635,9 @@ export default function Reader() {
         </button>
         <div className="chapter-title-bar">{currentChapterTitle || book.title}</div>
         <div style={{ display: 'flex', alignItems: 'center' }}>
+          <button className="toolbar-btn" onClick={() => setBookmarkListOpen(true)} title="书签列表">
+            <BookmarkIcon />
+          </button>
           <button className="toolbar-btn" onClick={() => setNotesOpen(true)} title="想法">
             <NoteIcon />
           </button>
@@ -700,13 +698,15 @@ export default function Reader() {
       {/* Selection popup */}
       {selectionPopup && (
         <TextSelectionPopup
-          x={selectionPopup.x}
           y={selectionPopup.y}
           text={selectionPopup.text}
+          isSingleWord={selectionPopup.isSingleWord}
+          highlightColor={settings.highlightColor}
+          onColorChange={(color) => updateSettings({ highlightColor: color })}
           onCopy={handleCopy}
           onHighlight={handleHighlight}
           onNote={handleAddNote}
-          onTranslate={handleTranslate}
+          onLookup={handleLookup}
           onClose={() => setSelectionPopup(null)}
         />
       )}

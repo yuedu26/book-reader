@@ -63,8 +63,49 @@ export function truncateText(text: string, max: number): string {
 }
 
 /**
- * 获取今天的日期字符串
+ * 获取某个日期的本地日期字符串（YYYY-MM-DD）
+ * 注意：不能用 toISOString()，那会按 UTC 取日期，
+ * 对 GMT+8 用户每天 0:00~08:00 会被归到前一天。
+ */
+export function localDateStr(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * 获取今天的本地日期字符串
  */
 export function todayStr(): string {
-  return new Date().toISOString().split('T')[0];
+  return localDateStr(new Date());
+}
+
+/**
+ * 复制文本到剪贴板（带降级方案）
+ * 非 HTTPS / iframe 受限环境下 navigator.clipboard 可能不可用，
+ * 降级使用临时 textarea + document.execCommand('copy')。
+ */
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // 继续走降级方案
+  }
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return ok;
+  } catch {
+    return false;
+  }
 }

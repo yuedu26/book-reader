@@ -74,6 +74,7 @@ export interface ReadingSettings {
   theme: ThemeName;
   lineHeight: number;
   pageMode: 'paginated' | 'scrolled';
+  highlightColor: string; // 划线高亮颜色（默认黄色）
 }
 
 // 备份数据
