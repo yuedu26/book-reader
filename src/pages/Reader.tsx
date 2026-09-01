@@ -10,15 +10,16 @@ import {
 } from '../components/Icons';
 import SettingsPanel from '../components/SettingsPanel';
 import TOCPanel from '../components/TOCPanel';
-import BookmarkList from '../components/BookmarkList';
 import NotesPanel from '../components/NotesPanel';
 import TextSelectionPopup from '../components/HighlightPopup';
-import { exportNotes } from '../services/backup';
+import { exportHighlightsAsText } from '../services/backup';
 import type { Chapter, Highlight } from '../types';
 
-// epub.js 高亮是 SVG 矩形，颜色通过 attributes 的 `fill` 传递
-function highlightStyles(color: string) {
-  return { fill: color, 'fill-opacity': 0.5, 'mix-blend-mode': 'multiply' };
+// 划线统一为「文字底部下划线」，颜色固定为舒适蓝
+const MARK_COLOR = '#0A84FF';
+
+function underlineStyles() {
+  return { stroke: MARK_COLOR, 'stroke-opacity': 0.9 };
 }
 
 export default function Reader() {
@@ -32,7 +33,6 @@ export default function Reader() {
   const updateBook = useAppStore(s => s.updateBook);
   const settings = useAppStore(s => s.settings);
   const addReadingTime = useAppStore(s => s.addReadingTime);
-  const updateSettings = useAppStore(s => s.updateSettings);
   const highlights = useAppStore(s => s.highlights.filter(h => h.bookId === bookId));
   const addHighlight = useAppStore(s => s.addHighlight);
   const removeHighlight = useAppStore(s => s.removeHighlight);
@@ -46,7 +46,6 @@ export default function Reader() {
   const [showToolbar, setShowToolbar] = useState(false); // 阅读时默认隐藏工具栏
   const [tocOpen, setTocOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [bookmarkListOpen, setBookmarkListOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [toc, setToc] = useState<Chapter[]>([]);
   const [currentChapterTitle, setCurrentChapterTitle] = useState('');
@@ -62,9 +61,7 @@ export default function Reader() {
   const readingStartRef = useRef(Date.now());
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const prevPageModeRef = useRef(settings.pageMode);
-
-  // 当前书籍的「想法」（带 note 的高亮）
-  const notes = highlights.filter(h => h.note && h.note.trim().length > 0);
+  const pageTurnLockRef = useRef(0);
 
   // Initialize epub
   useEffect(() => {
@@ -210,13 +207,19 @@ export default function Reader() {
             const sel = win?.getSelection?.()?.toString?.();
             if (sel && sel.trim().length > 0) return;
 
-            const width = doc.documentElement?.clientWidth || doc.body?.clientWidth || 0;
+            // 用 iframe 视口宽判断区域（documentElement.clientWidth 在分页列布局下会算错导致来回翻）
+            const width = win?.innerWidth || 0;
             if (!width) return;
             const x = ev.clientX;
             setSelectionPopup(null);
+
             if (x < width * 0.3) {
+              if (Date.now() - pageTurnLockRef.current < 250) return;
+              pageTurnLockRef.current = Date.now();
               rendition.prev();
             } else if (x > width * 0.7) {
+              if (Date.now() - pageTurnLockRef.current < 250) return;
+              pageTurnLockRef.current = Date.now();
               rendition.next();
             } else {
               setShowToolbar(prev => !prev);
@@ -294,7 +297,7 @@ export default function Reader() {
           .filter(hl => hl.bookId === bookId)
           .forEach(hl => {
             try {
-              rendition.annotations.add('highlight', hl.cfiRange, {}, undefined, undefined, highlightStyles(hl.color));
+              rendition.annotations.add('underline', hl.cfiRange, {}, undefined, undefined, underlineStyles());
             } catch (err) {
               console.warn('[Reader] Failed to restore highlight:', err);
             }
@@ -414,11 +417,15 @@ export default function Reader() {
         'padding': '20px !important',
         'margin': '0 !important',
       },
-      // 所有元素继承 body 的字号/行高/字体，确保字号调节真正生效
+      // 所有元素继承 body 的字号/行高/字体，确保字号调节真正生效；
+      // touch-callout 用于尽量抑制 Safari 原生文本选择菜单，user-select 保留整段可选中
       '*': {
         'font-family': fontStack + ' !important',
         'font-size': 'inherit !important',
         'line-height': 'inherit !important',
+        '-webkit-touch-callout': 'none !important',
+        '-webkit-user-select': 'text !important',
+        'user-select': 'text !important',
       },
       'a': {
         'color': (isDark ? '#66aaff' : '#007AFF') + ' !important',
@@ -506,12 +513,12 @@ export default function Reader() {
       chapterHref: book?.currentChapterHref || '',
       cfiRange: selectionPopup.cfiRange,
       text,
-      color: settings.highlightColor,
+      color: MARK_COLOR,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
     addHighlight(hl);
-    renditionRef.current?.annotations.add('highlight', hl.cfiRange, {}, undefined, undefined, highlightStyles(hl.color));
+    renditionRef.current?.annotations.add('underline', hl.cfiRange, {}, undefined, undefined, underlineStyles());
     setSelectionPopup(null);
   };
 
@@ -530,18 +537,18 @@ export default function Reader() {
       chapterHref: book?.currentChapterHref || '',
       cfiRange: selectionPopup.cfiRange,
       text,
-      color: settings.highlightColor,
+      color: MARK_COLOR,
       note: '',
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
     addHighlight(hl);
-    renditionRef.current?.annotations.add('highlight', hl.cfiRange, {}, undefined, undefined, highlightStyles(hl.color));
+    renditionRef.current?.annotations.add('underline', hl.cfiRange, {}, undefined, undefined, underlineStyles());
     setSelectionPopup(null);
     setNoteDialog({ highlightId: hl.id, text: hl.text });
   };
 
-  // Handle lookup（查词：记录生词 + 打开系统词典）
+  // Handle lookup（查词：记录生词 + 调起欧路词典离线查词）
   const handleLookup = () => {
     if (!selectionPopup) return;
     const text = typeof selectionPopup.text === 'string' 
@@ -573,14 +580,12 @@ export default function Reader() {
                   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     
     if (isIOS) {
-      // iOS 设备：使用系统词典查询
-      // 使用 dict:// URL scheme 调用系统词典
-      const dictUrl = `dict://${encodeURIComponent(text)}`;
-      window.location.href = dictUrl;
+      // iOS：调起欧路词典查词（用已导入的离线 mdx 词库，无需联网）
+      const lookupWord = word || text;
+      window.location.href = `eudic://dict/${encodeURIComponent(lookupWord)}`;
     } else {
-      // 非 iOS 设备：使用 Google Translate
-      const translateUrl = `https://translate.google.com/?sl=auto&tl=zh-CN&text=${encodeURIComponent(text)}`;
-      window.open(translateUrl, '_blank');
+      // 非 iOS：打开有道词典在线查词
+      window.open(`https://dict.youdao.com/search?q=${encodeURIComponent(word || text)}`, '_blank');
     }
     
     setSelectionPopup(null);
@@ -593,10 +598,10 @@ export default function Reader() {
     setNoteDialog(null);
   };
 
-  // Export notes
-  const handleExportNotes = () => {
+  // 导出划线/想法为 TXT（notesOnly 只导带想法的条目）
+  const handleExportNotes = (notesOnly: boolean) => {
     if (!book) return;
-    exportNotes(book.id, book.title);
+    exportHighlightsAsText(highlights, [book], notesOnly);
   };
 
   // Click area to turn pages / toggle toolbar
@@ -635,9 +640,6 @@ export default function Reader() {
         </button>
         <div className="chapter-title-bar">{currentChapterTitle || book.title}</div>
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          <button className="toolbar-btn" onClick={() => setBookmarkListOpen(true)} title="书签列表">
-            <BookmarkIcon />
-          </button>
           <button className="toolbar-btn" onClick={() => setNotesOpen(true)} title="想法">
             <NoteIcon />
           </button>
@@ -701,8 +703,6 @@ export default function Reader() {
           y={selectionPopup.y}
           text={selectionPopup.text}
           isSingleWord={selectionPopup.isSingleWord}
-          highlightColor={settings.highlightColor}
-          onColorChange={(color) => updateSettings({ highlightColor: color })}
           onCopy={handleCopy}
           onHighlight={handleHighlight}
           onNote={handleAddNote}
@@ -735,25 +735,20 @@ export default function Reader() {
         toc={toc}
         currentHref={book.currentChapterHref}
         onNavigate={goToChapter}
+        bookmarks={bookmarks}
+        onNavigateBookmark={(cfi) => {
+          renditionRef.current?.display(cfi);
+          setTocOpen(false);
+        }}
+        onDeleteBookmark={removeBookmark}
       />
 
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
-      <BookmarkList
-        open={bookmarkListOpen}
-        onClose={() => setBookmarkListOpen(false)}
-        bookmarks={bookmarks}
-        onNavigate={(cfi) => {
-          renditionRef.current?.display(cfi);
-          setBookmarkListOpen(false);
-        }}
-        onDelete={removeBookmark}
-      />
-
       <NotesPanel
         open={notesOpen}
         onClose={() => setNotesOpen(false)}
-        notes={notes}
+        highlights={highlights}
         onNavigate={(cfiRange) => {
           renditionRef.current?.display(cfiRange);
           setNotesOpen(false);

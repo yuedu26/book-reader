@@ -191,10 +191,7 @@ export default function NotesPage() {
         marksSorted.map(h => (
           <div key={h.id} className="note-item">
             <div className="note-item-main" onClick={() => goTo(h.bookId, h.cfiRange)}>
-              <div className="note-quote">
-                <span className="hl-color-dot" style={{ backgroundColor: h.color }} />
-                “{h.text}”
-              </div>
+              <div className="note-quote">“{h.text}”</div>
               {h.note && <div className="note-content">{h.note}</div>}
               <div className="note-date">{bookTitle(h.bookId)} · {formatRelativeTime(h.updatedAt)}</div>
             </div>

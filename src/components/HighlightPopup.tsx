@@ -1,20 +1,9 @@
 import React from 'react';
 
-// 划线高亮可选颜色（浅色系，保证正文可读）
-export const HIGHLIGHT_COLORS: { value: string; name: string }[] = [
-  { value: '#FFEB3B', name: '黄色' },
-  { value: '#C8F7C5', name: '绿色' },
-  { value: '#B3D9FF', name: '蓝色' },
-  { value: '#FFC4E1', name: '粉色' },
-  { value: '#FFD6A5', name: '橙色' },
-];
-
 interface Props {
   y: number;
   text: string;
   isSingleWord: boolean;
-  highlightColor: string;
-  onColorChange: (color: string) => void;
   onCopy: () => void;
   onHighlight: () => void;
   onNote: () => void;
@@ -23,12 +12,12 @@ interface Props {
 }
 
 export default function TextSelectionPopup({
-  y, text, isSingleWord, highlightColor, onColorChange,
+  y, text, isSingleWord,
   onCopy, onHighlight, onNote, onLookup, onClose,
 }: Props) {
   // 弹条水平居中（CSS left:0/right:0/margin:auto），这里只做竖直方向的边界钳制
   const viewportH = typeof window !== 'undefined' ? window.innerHeight : 800;
-  const top = Math.min(Math.max(y, 8), viewportH - 140);
+  const top = Math.min(Math.max(y, 8), viewportH - 120);
 
   return (
     <>
@@ -51,9 +40,10 @@ export default function TextSelectionPopup({
             </button>
           )}
           <button className="popup-action-btn" onClick={onHighlight} title="划线">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 20h9"></path>
-              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="20" x2="12" y2="10"></line>
+              <line x1="18" y1="20" x2="18" y2="4"></line>
+              <line x1="6" y1="20" x2="6" y2="16"></line>
             </svg>
             <span>划线</span>
           </button>
@@ -63,18 +53,6 @@ export default function TextSelectionPopup({
             </svg>
             <span>想法</span>
           </button>
-        </div>
-        <div className="popup-colors-row">
-          <span className="popup-colors-label">划线颜色</span>
-          {HIGHLIGHT_COLORS.map(c => (
-            <button
-              key={c.value}
-              className={`popup-color-dot ${highlightColor === c.value ? 'active' : ''}`}
-              style={{ backgroundColor: c.value }}
-              title={c.name}
-              onClick={() => onColorChange(c.value)}
-            />
-          ))}
         </div>
       </div>
       {/* Invisible overlay to dismiss */}

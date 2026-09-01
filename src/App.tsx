@@ -79,6 +79,8 @@ function AppContent() {
   useEffect(() => {
     const meta = document.querySelector('meta[name="theme-color"]');
     meta?.setAttribute('content', theme.bg);
+    // 让顶部安全区/状态栏区域背景跟随主题（standalone 下状态栏透出 body 背景）
+    document.body.style.backgroundColor = theme.bg;
   }, [settings.theme, theme.bg]);
 
   return (
