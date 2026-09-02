@@ -6,8 +6,24 @@ const DB_NAME = 'reader_pwa_db';
 const DB_VERSION = 3; // 再次升级，强制重新创建
 const STORE_NAME = 'epub_files';
 
+// 检测是否在 standalone 模式（添加到主屏幕）
+function isStandalone(): boolean {
+  return window.matchMedia('(display-mode: standalone)').matches || 
+         (window.navigator as any).standalone === true;
+}
+
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
+    // 检查 IndexedDB 是否可用
+    if (!window.indexedDB) {
+      const errorMsg = 'IndexedDB 不可用，请检查浏览器设置或尝试在普通浏览器中打开';
+      console.error('[DB]', errorMsg, 'Standalone:', isStandalone());
+      reject(new Error(errorMsg));
+      return;
+    }
+
+    console.log('[DB] Opening database...', 'Standalone:', isStandalone());
+    
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     
     req.onupgradeneeded = (event) => {
@@ -31,8 +47,13 @@ function openDB(): Promise<IDBDatabase> {
     };
     
     req.onerror = () => {
-      console.error('[DB] Open failed:', req.error);
-      reject(req.error);
+      console.error('[DB] Open failed:', req.error, 'Standalone:', isStandalone());
+      reject(new Error(`IndexedDB 打开失败：${req.error?.message || '未知错误'}。如果是 standalone 模式，请尝试在 Safari 中打开`));
+    };
+    
+    req.onblocked = () => {
+      console.error('[DB] Open blocked, please close other tabs');
+      reject(new Error('数据库被占用，请关闭其他标签页后重试'));
     };
   });
 }

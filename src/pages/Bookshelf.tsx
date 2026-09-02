@@ -115,11 +115,28 @@ export default function Bookshelf() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState<Book | null>(null);
+  const [dbError, setDbError] = useState<string | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const books = useAppStore(s => s.books);
   const addBook = useAppStore(s => s.addBook);
   const removeBook = useAppStore(s => s.removeBook);
+
+  // 检测 standalone 模式和 IndexedDB 可用性
+  React.useEffect(() => {
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+                         (window.navigator as any).standalone === true;
+    
+    if (isStandalone) {
+      console.log('[Bookshelf] Running in standalone mode');
+    }
+    
+    if (!window.indexedDB) {
+      const errorMsg = 'IndexedDB 不可用，无法存储书籍。请在 Safari 设置中检查：设置 → Safari → 高级 → 功能实验 → 确保 IndexedDB 已启用';
+      console.error('[Bookshelf]', errorMsg);
+      setDbError(errorMsg);
+    }
+  }, []);
 
   const handleImport = async () => {
     const input = fileInputRef.current;
@@ -130,6 +147,12 @@ export default function Bookshelf() {
 
     if (!file.name.toLowerCase().endsWith('.epub')) {
       alert('请选择 .epub 格式的文件');
+      return;
+    }
+
+    // 检查 IndexedDB 是否可用
+    if (!window.indexedDB) {
+      alert('IndexedDB 不可用，无法导入书籍。请在 Safari 设置中检查：设置 → Safari → 高级 → 功能实验 → 确保 IndexedDB 已启用');
       return;
     }
 
@@ -168,7 +191,17 @@ export default function Bookshelf() {
       console.log('[Import] Done!');
     } catch (err) {
       console.error('[Import] Failed:', err);
-      alert(`导入失败：${err instanceof Error ? err.message : '未知错误'}\n\n请确认文件是有效的 EPUB 格式`);
+      const errorMsg = err instanceof Error ? err.message : '未知错误';
+      
+      // 如果是 standalone 模式，给出更详细的提示
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+                           (window.navigator as any).standalone === true;
+      
+      if (isStandalone && errorMsg.includes('IndexedDB')) {
+        alert(`导入失败：${errorMsg}\n\n这是 standalone 模式的已知问题。请尝试：\n1. 在 Safari 中打开 https://yuedu26.github.io/book-reader/\n2. 导入书籍\n3. 然后再添加到主屏幕`);
+      } else {
+        alert(`导入失败：${errorMsg}\n\n请确认文件是有效的 EPUB 格式`);
+      }
     } finally {
       setImporting(false);
     }
@@ -195,6 +228,24 @@ export default function Bookshelf() {
 
   return (
     <div className="page-content">
+      {/* IndexedDB 错误提示 */}
+      {dbError && (
+        <div style={{
+          padding: '16px 20px',
+          background: '#FFF3CD',
+          borderBottom: '1px solid #FFEAA7',
+          color: '#856404',
+          fontSize: 14,
+          lineHeight: 1.5,
+        }}>
+          <strong>⚠️ 存储不可用</strong>
+          <div style={{ marginTop: 8 }}>{dbError}</div>
+          <div style={{ marginTop: 8, fontSize: 13 }}>
+            临时解决方案：在 Safari 中打开网页版导入书籍，然后再添加到主屏幕
+          </div>
+        </div>
+      )}
+
       <div className="bookshelf-header">
         <h1>书架</h1>
         <button className="import-btn" onClick={() => fileInputRef.current?.click()} disabled={importing}>
