@@ -212,8 +212,8 @@ export default function Reader() {
             const sel = win?.getSelection?.()?.toString?.();
             if (sel && sel.trim().length > 0) return;
 
-            // 用屏幕宽度判断区域（阅读区基本全屏，最可靠）
-            const width = window.innerWidth || 0;
+            // 用 iframe 内窗口的宽度（ev.clientX 是相对于 iframe 的坐标，必须用 iframe 的宽度）
+            const width = win?.innerWidth || 0;
             if (!width) return;
             const x = ev.clientX;
             setSelectionPopup(null);
