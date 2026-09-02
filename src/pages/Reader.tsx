@@ -68,6 +68,7 @@ export default function Reader() {
   const prevPageModeRef = useRef(settings.pageMode);
   const pageTurnLockRef = useRef(0);
   const viewerClickHandlerRef = useRef<((ev: MouseEvent) => void) | null>(null);
+  const viewerTouchEndHandlerRef = useRef<((ev: TouchEvent) => void) | null>(null);
   const viewerElementRef = useRef<HTMLElement | null>(null);
 
   // Initialize epub
@@ -230,19 +231,39 @@ export default function Reader() {
           }, 300);
         });
 
-        // 绑定点击翻页（绑定到 document 上，确保能捕获所有点击）
+        // 绑定点击翻页（用 touchend 而不是 click，iOS 更可靠，且不会被 iframe 阻止）
+        const viewerTouchEndHandler = (ev: TouchEvent) => {
+          const sel = window.getSelection?.()?.toString?.();
+          if (sel && sel.trim().length > 0) return;
+
+          const touch = ev.changedTouches[0];
+          const rect = viewerRef.current?.getBoundingClientRect();
+          if (!rect) return;
+          
+          const x = touch.clientX - rect.left;
+          const width = rect.width;
+          setSelectionPopup(null);
+
+          if (x < width * 0.3) {
+            if (Date.now() - pageTurnLockRef.current < 300) return;
+            pageTurnLockRef.current = Date.now();
+            rendition.prev();
+          } else if (x > width * 0.7) {
+            if (Date.now() - pageTurnLockRef.current < 300) return;
+            pageTurnLockRef.current = Date.now();
+            rendition.next();
+          } else {
+            setShowToolbar(prev => !prev);
+          }
+        };
+
+        // 也绑定 click 作为桌面端备用
         const viewerClickHandler = (ev: MouseEvent) => {
           const sel = window.getSelection?.()?.toString?.();
           if (sel && sel.trim().length > 0) return;
 
           const rect = viewerRef.current?.getBoundingClientRect();
           if (!rect) return;
-          
-          // 检查点击是否在 viewer 区域内
-          if (ev.clientX < rect.left || ev.clientX > rect.right || 
-              ev.clientY < rect.top || ev.clientY > rect.bottom) {
-            return;
-          }
           
           const x = ev.clientX - rect.left;
           const width = rect.width;
@@ -262,7 +283,12 @@ export default function Reader() {
         };
 
         viewerClickHandlerRef.current = viewerClickHandler;
-        document.addEventListener('click', viewerClickHandler);
+        viewerTouchEndHandlerRef.current = viewerTouchEndHandler;
+        const viewerElement = viewerRef.current;
+        if (viewerElement) {
+          viewerElement.addEventListener('touchend', viewerTouchEndHandler);
+          viewerElement.addEventListener('click', viewerClickHandler);
+        }
 
         // 绑定 iframe 内的文本选择
         const boundDocs = new WeakSet<any>();
@@ -434,9 +460,15 @@ export default function Reader() {
       flushReadingTime();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
 
-      // 清理 viewer 点击事件
-      if (viewerClickHandlerRef.current) {
-        document.removeEventListener('click', viewerClickHandlerRef.current);
+      // 清理 viewer 事件
+      const viewerElement = viewerRef.current;
+      if (viewerElement) {
+        if (viewerTouchEndHandlerRef.current) {
+          viewerElement.removeEventListener('touchend', viewerTouchEndHandlerRef.current);
+        }
+        if (viewerClickHandlerRef.current) {
+          viewerElement.removeEventListener('click', viewerClickHandlerRef.current);
+        }
       }
 
       // 清理
