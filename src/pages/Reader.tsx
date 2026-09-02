@@ -67,7 +67,6 @@ export default function Reader() {
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const prevPageModeRef = useRef(settings.pageMode);
   const pageTurnLockRef = useRef(0);
-  const viewerClickHandlerRef = useRef<((ev: MouseEvent) => void) | null>(null);
   const viewerTouchEndHandlerRef = useRef<((ev: TouchEvent) => void) | null>(null);
   const viewerElementRef = useRef<HTMLElement | null>(null);
 
@@ -231,63 +230,40 @@ export default function Reader() {
           }, 300);
         });
 
-        // 绑定点击翻页（用 touchend 而不是 click，iOS 更可靠，且不会被 iframe 阻止）
+        // 绑定点击翻页（用 touchend，iOS 更可靠）
         const viewerTouchEndHandler = (ev: TouchEvent) => {
-          const sel = window.getSelection?.()?.toString?.();
-          if (sel && sel.trim().length > 0) return;
+          try {
+            const sel = window.getSelection?.()?.toString?.();
+            if (sel && sel.trim().length > 0) return;
 
-          const touch = ev.changedTouches[0];
-          const rect = viewerRef.current?.getBoundingClientRect();
-          if (!rect) return;
-          
-          const x = touch.clientX - rect.left;
-          const width = rect.width;
-          setSelectionPopup(null);
+            const touch = ev.changedTouches[0];
+            const rect = viewerRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            
+            const x = touch.clientX - rect.left;
+            const width = rect.width;
+            setSelectionPopup(null);
 
-          if (x < width * 0.3) {
-            if (Date.now() - pageTurnLockRef.current < 300) return;
-            pageTurnLockRef.current = Date.now();
-            rendition.prev();
-          } else if (x > width * 0.7) {
-            if (Date.now() - pageTurnLockRef.current < 300) return;
-            pageTurnLockRef.current = Date.now();
-            rendition.next();
-          } else {
-            setShowToolbar(prev => !prev);
+            if (x < width * 0.3) {
+              if (Date.now() - pageTurnLockRef.current < 500) return;
+              pageTurnLockRef.current = Date.now();
+              rendition.prev();
+            } else if (x > width * 0.7) {
+              if (Date.now() - pageTurnLockRef.current < 500) return;
+              pageTurnLockRef.current = Date.now();
+              rendition.next();
+            } else {
+              setShowToolbar(prev => !prev);
+            }
+          } catch (e) {
+            console.warn('[Reader] Touch end handler error:', e);
           }
         };
 
-        // 也绑定 click 作为桌面端备用
-        const viewerClickHandler = (ev: MouseEvent) => {
-          const sel = window.getSelection?.()?.toString?.();
-          if (sel && sel.trim().length > 0) return;
-
-          const rect = viewerRef.current?.getBoundingClientRect();
-          if (!rect) return;
-          
-          const x = ev.clientX - rect.left;
-          const width = rect.width;
-          setSelectionPopup(null);
-
-          if (x < width * 0.3) {
-            if (Date.now() - pageTurnLockRef.current < 300) return;
-            pageTurnLockRef.current = Date.now();
-            rendition.prev();
-          } else if (x > width * 0.7) {
-            if (Date.now() - pageTurnLockRef.current < 300) return;
-            pageTurnLockRef.current = Date.now();
-            rendition.next();
-          } else {
-            setShowToolbar(prev => !prev);
-          }
-        };
-
-        viewerClickHandlerRef.current = viewerClickHandler;
         viewerTouchEndHandlerRef.current = viewerTouchEndHandler;
         const viewerElement = viewerRef.current;
         if (viewerElement) {
-          viewerElement.addEventListener('touchend', viewerTouchEndHandler);
-          viewerElement.addEventListener('click', viewerClickHandler);
+          viewerElement.addEventListener('touchend', viewerTouchEndHandler, { passive: true });
         }
 
         // 绑定 iframe 内的文本选择
@@ -462,13 +438,8 @@ export default function Reader() {
 
       // 清理 viewer 事件
       const viewerElement = viewerRef.current;
-      if (viewerElement) {
-        if (viewerTouchEndHandlerRef.current) {
-          viewerElement.removeEventListener('touchend', viewerTouchEndHandlerRef.current);
-        }
-        if (viewerClickHandlerRef.current) {
-          viewerElement.removeEventListener('click', viewerClickHandlerRef.current);
-        }
+      if (viewerElement && viewerTouchEndHandlerRef.current) {
+        viewerElement.removeEventListener('touchend', viewerTouchEndHandlerRef.current);
       }
 
       // 清理
