@@ -210,11 +210,11 @@ export default function Reader() {
             };
             const title = findTitle(tocItems);
             
-            // 如果 TOC 匹配失败，用文件名作为章节名（去掉路径和扩展名）
+            // 如果 TOC 匹配失败，用文件名作为章节名（去掉路径、扩展名、_split_后缀）
             let chapterName = title;
             if (!chapterName) {
               const match = href.match(/([^/]+?)(?:\.xhtml|\.html|\.htm)?(?:#.*)?$/i);
-              chapterName = match ? match[1] : '';
+              chapterName = match ? match[1].replace(/_split_\d+$/, '') : '';
               console.log('[Reader] TOC match failed, using filename:', chapterName);
             }
             
@@ -539,7 +539,7 @@ export default function Reader() {
       let chapterName = currentChapterTitle;
       if (!chapterName && book.currentChapterHref) {
         const match = book.currentChapterHref.match(/([^/]+?)(?:\.xhtml|\.html|\.htm)?(?:#.*)?$/i);
-        chapterName = match ? match[1] : '';
+        chapterName = match ? match[1].replace(/_split_\d+$/, '') : '';
       }
       
       console.log('[Reader] Adding bookmark:', { 
