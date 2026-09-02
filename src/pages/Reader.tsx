@@ -15,16 +15,15 @@ import TextSelectionPopup from '../components/HighlightPopup';
 import { exportHighlightsAsText } from '../services/backup';
 import type { Chapter, Highlight } from '../types';
 
-// 划线统一为「文字底部下划线」，颜色固定为舒适蓝
-const MARK_COLOR = '#0A84FF';
+// 划线统一为「背景色高亮」，颜色固定为舒适蓝
+const MARK_COLOR = '#B3D9FF';
 
-function underlineStyles() {
+function highlightStyles() {
   return {
-    stroke: MARK_COLOR,
-    'stroke-opacity': 0.85,
-    'stroke-width': 2,
-    'stroke-linecap': 'round',
-    'stroke-linejoin': 'round',
+    'background-color': MARK_COLOR,
+    'background-image': 'none',
+    'border-radius': '2px',
+    'padding': '0 2px',
   };
 }
 
@@ -213,8 +212,8 @@ export default function Reader() {
             const sel = win?.getSelection?.()?.toString?.();
             if (sel && sel.trim().length > 0) return;
 
-            // 用阅读区容器的实际宽度（最可靠，不受 iframe 跨域或列布局影响）
-            const width = viewerRef.current?.offsetWidth || 0;
+            // 用屏幕宽度判断区域（阅读区基本全屏，最可靠）
+            const width = window.innerWidth || 0;
             if (!width) return;
             const x = ev.clientX;
             setSelectionPopup(null);
@@ -303,7 +302,7 @@ export default function Reader() {
           .filter(hl => hl.bookId === bookId)
           .forEach(hl => {
             try {
-              rendition.annotations.add('underline', hl.cfiRange, {}, undefined, undefined, underlineStyles());
+              rendition.annotations.add('highlight', hl.cfiRange, {}, undefined, undefined, highlightStyles());
             } catch (err) {
               console.warn('[Reader] Failed to restore highlight:', err);
             }
@@ -533,7 +532,7 @@ export default function Reader() {
       updatedAt: Date.now(),
     };
     addHighlight(hl);
-    renditionRef.current?.annotations.add('underline', hl.cfiRange, {}, undefined, undefined, underlineStyles());
+    renditionRef.current?.annotations.add('highlight', hl.cfiRange, {}, undefined, undefined, highlightStyles());
     setSelectionPopup(null);
   };
 
@@ -558,7 +557,7 @@ export default function Reader() {
       updatedAt: Date.now(),
     };
     addHighlight(hl);
-    renditionRef.current?.annotations.add('underline', hl.cfiRange, {}, undefined, undefined, underlineStyles());
+    renditionRef.current?.annotations.add('highlight', hl.cfiRange, {}, undefined, undefined, highlightStyles());
     setSelectionPopup(null);
     setNoteDialog({ highlightId: hl.id, text: hl.text });
   };
