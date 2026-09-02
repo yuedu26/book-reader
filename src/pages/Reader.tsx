@@ -213,9 +213,8 @@ export default function Reader() {
             const sel = win?.getSelection?.()?.toString?.();
             if (sel && sel.trim().length > 0) return;
 
-            // 用 iframe 元素的实际渲染宽度（epub.js paginated 模式下 innerWidth 会返回整个列容器宽度）
-            const iframe = doc.defaultView?.frameElement as HTMLIFrameElement | null;
-            const width = iframe?.getBoundingClientRect().width || doc.documentElement?.clientWidth || 0;
+            // 用阅读区容器的实际宽度（最可靠，不受 iframe 跨域或列布局影响）
+            const width = viewerRef.current?.offsetWidth || 0;
             if (!width) return;
             const x = ev.clientX;
             setSelectionPopup(null);
@@ -424,18 +423,27 @@ export default function Reader() {
         'padding': '20px !important',
         'margin': '0 !important',
       },
-      // 所有元素继承 body 的字号/行高/字体，确保字号调节真正生效；
-      // touch-callout 用于尽量抑制 Safari 原生文本选择菜单，user-select 保留整段可选中
+      // 所有元素继承 body 的字号/行高/字体，确保字号调节真正生效
       '*': {
         'font-family': fontStack + ' !important',
         'font-size': 'inherit !important',
         'line-height': 'inherit !important',
-        '-webkit-touch-callout': 'none !important',
+        // 允许长按选择文本（iOS Safari）
+        '-webkit-touch-callout': 'default !important',
         '-webkit-user-select': 'text !important',
         'user-select': 'text !important',
       },
       'a': {
         'color': (isDark ? '#66aaff' : '#007AFF') + ' !important',
+      },
+      // 覆盖 marks-pane 的 SVG 样式，去掉下划线的边框
+      'svg': {
+        'pointer-events': 'none !important',
+      },
+      'svg path': {
+        'stroke-linecap': 'round !important',
+        'stroke-linejoin': 'round !important',
+        'fill': 'none !important',
       },
     });
     rendition.themes.select('custom');
@@ -556,42 +564,46 @@ export default function Reader() {
   };
 
   // 从 epub.js range 中提取包含选中词的完整句子作为例句
-function extractSentenceFromRange(rendition: any, cfiRange: string, word: string): string {
-  try {
-    const range = rendition.getRange(cfiRange);
-    if (!range) return '';
-    
-    // 获取 range 所在父元素的完整文本
-    const parent = range.commonAncestorContainer;
-    const textNode = parent.nodeType === 3 ? parent : parent.firstChild;
-    let fullText = '';
-    
-    // 向上找到包含完整段落的节点
-    let node: Node | null = textNode;
-    while (node && node.nodeType !== 1) {
-      node = node.parentNode;
+  function extractSentenceFromRange(rendition: any, cfiRange: string, word: string): string {
+    try {
+      const range = rendition.getRange(cfiRange);
+      if (!range) return '';
+      
+      // 从 range 的 startContainer 向上找到段落级别的元素（p, div, li 等）
+      let node: Node | null = range.startContainer;
+      while (node && node.nodeType !== 1) {
+        node = node.parentNode;
+      }
+      
+      // 继续向上找到段落元素
+      while (node) {
+        const tagName = (node as Element).tagName?.toLowerCase();
+        if (tagName === 'p' || tagName === 'div' || tagName === 'li' || tagName === 'section') {
+          break;
+        }
+        node = node.parentNode;
+      }
+      
+      if (!node) return '';
+      
+      const fullText = (node as Element).textContent || '';
+      if (!fullText) return '';
+      
+      // 用正则提取包含该词的句子（以句号、问号、感叹号为边界）
+      const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`[^.!?]*${escapedWord}[^.!?]*[.!?]?`, 'i');
+      const match = fullText.match(regex);
+      
+      if (match && match[0].trim().length > 0) {
+        return match[0].trim();
+      }
+      
+      // 如果没匹配到，返回段落的前 200 字符
+      return fullText.substring(0, 200).trim();
+    } catch {
+      return '';
     }
-    if (node) {
-      fullText = (node as Element).textContent || '';
-    }
-    
-    if (!fullText) return '';
-    
-    // 用正则提取包含该词的句子（以句号、问号、感叹号、换行为边界）
-    const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`[^.!?\\n]*${escapedWord}[^.!?\\n]*[.!?]?`, 'i');
-    const match = fullText.match(regex);
-    
-    if (match) {
-      return match[0].trim();
-    }
-    
-    // 如果没匹配到，返回 range 周围的上下文
-    return fullText.substring(0, 200).trim();
-  } catch {
-    return '';
   }
-}
 
 // Handle lookup（查词：记录生词 + 调起欧路词典离线查词）
   const handleLookup = () => {
@@ -652,24 +664,6 @@ function extractSentenceFromRange(rendition: any, cfiRange: string, word: string
     exportHighlightsAsText(highlights, [book], notesOnly);
   };
 
-  // Click area to turn pages / toggle toolbar
-  const handleViewerClick = (e: React.MouseEvent) => {
-    const rect = viewerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    setSelectionPopup(null);
-    const x = (e.clientX - rect.left) / rect.width;
-    if (x < 0.3) {
-      // 左侧 30%：上一页
-      renditionRef.current?.prev();
-    } else if (x > 0.7) {
-      // 右侧 30%：下一页
-      renditionRef.current?.next();
-    } else {
-      // 中间 40%：显示/隐藏工具栏
-      setShowToolbar(prev => !prev);
-    }
-  };
-
   if (!book) {
     return (
       <div className="reader-page" style={{ justifyContent: 'center', alignItems: 'center' }}>
@@ -702,7 +696,6 @@ function extractSentenceFromRange(rendition: any, cfiRange: string, word: string
         ref={viewerRef}
         id="epub-viewer-container"
         className="reader-viewer"
-        onClick={handleViewerClick}
       />
 
       {/* Loading overlay */}
