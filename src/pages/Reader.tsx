@@ -196,6 +196,8 @@ export default function Reader() {
                 const itemHrefNorm = normalizeHref(item.href);
                 const hrefNorm = normalizeHref(href);
                 
+                console.log('[Reader] TOC match:', { itemHrefNorm, hrefNorm, itemLabel: item.label });
+                
                 if (itemHrefNorm === hrefNorm || item.href === href || href.includes(item.href) || item.href.includes(href)) {
                   return item.label;
                 }
@@ -213,6 +215,7 @@ export default function Reader() {
             if (!chapterName) {
               const match = href.match(/([^/]+?)(?:\.xhtml|\.html|\.htm)?(?:#.*)?$/i);
               chapterName = match ? match[1] : '';
+              console.log('[Reader] TOC match failed, using filename:', chapterName);
             }
             
             console.log('[Reader] Chapter title:', chapterName, 'for href:', href, 'TOC items:', tocItems.length);
@@ -532,12 +535,25 @@ export default function Reader() {
     if (existing) {
       removeBookmark(existing.id);
     } else {
+      // 如果 currentChapterTitle 为空，用 chapterHref 提取文件名作为降级
+      let chapterName = currentChapterTitle;
+      if (!chapterName && book.currentChapterHref) {
+        const match = book.currentChapterHref.match(/([^/]+?)(?:\.xhtml|\.html|\.htm)?(?:#.*)?$/i);
+        chapterName = match ? match[1] : '';
+      }
+      
+      console.log('[Reader] Adding bookmark:', { 
+        chapterTitle: chapterName, 
+        chapterHref: book.currentChapterHref,
+        currentChapterTitle 
+      });
+      
       addBookmark({
         id: generateId(),
         bookId: book.id,
         chapterHref: book.currentChapterHref,
         cfi: book.currentLocation,
-        chapterTitle: currentChapterTitle,
+        chapterTitle: chapterName,
         createdAt: Date.now(),
       });
     }

@@ -64,6 +64,7 @@ export default function NotesPage() {
         .replace(/_split_\d+$/, '')             // 去掉 _split_002 后缀
         .match(/^(.+)$/);
       chapterName = match ? match[1] : w.chapterHref;
+      console.log('[Vocab] Extracted chapter name from href:', chapterName, 'from:', w.chapterHref);
     }
     
     const key = chapterName || '未知章节';
