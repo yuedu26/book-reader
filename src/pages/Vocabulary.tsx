@@ -56,8 +56,13 @@ export default function NotesPage() {
     
     // 如果 chapterTitle 为空或无效，从 chapterHref 提取
     if (!chapterName && w.chapterHref) {
-      // 从 href 提取章节名：OEBPS/chapter1.xhtml -> chapter1
-      const match = w.chapterHref.match(/([^/]+?)(?:\.xhtml|\.html|\.htm)?$/i);
+      // 从 href 提取章节名：OEBPS/chapter1_split_002.xhtml#anchor -> chapter1
+      const match = w.chapterHref
+        .replace(/#.*$/, '')                    // 去掉锚点
+        .replace(/.*\//, '')                    // 去掉路径前缀
+        .replace(/\.(xhtml|html|htm)$/i, '')    // 去掉扩展名
+        .replace(/_split_\d+$/, '')             // 去掉 _split_002 后缀
+        .match(/^(.+)$/);
       chapterName = match ? match[1] : w.chapterHref;
     }
     

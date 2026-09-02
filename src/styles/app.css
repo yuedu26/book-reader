@@ -750,16 +750,20 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .vocab-action-btn {
-  width: 32px;
+  min-width: 60px;
   height: 32px;
+  padding: 0 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: none;
-  background: none;
+  gap: 4px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
   cursor: pointer;
-  border-radius: 50%;
-  color: var(--text-muted);
+  border-radius: 16px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .vocab-action-btn:active { background: rgba(0,0,0,0.05); }

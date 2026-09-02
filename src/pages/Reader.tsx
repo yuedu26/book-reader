@@ -186,11 +186,17 @@ export default function Reader() {
           if (href) {
             const findTitle = (items: Chapter[]): string => {
               for (const item of items) {
-                // 宽松匹配：去掉路径前缀和扩展名后比较
-                const itemHrefClean = item.href.replace(/.*\//, '').replace(/\.(xhtml|html|htm)$/i, '');
-                const hrefClean = href.replace(/.*\//, '').replace(/\.(xhtml|html|htm)$/i, '');
+                // 宽松匹配：去掉路径前缀、扩展名、锚点、下划线后缀后比较
+                const normalizeHref = (h: string) => 
+                  h.replace(/#.*$/, '')           // 去掉锚点
+                   .replace(/.*\//, '')           // 去掉路径前缀
+                   .replace(/\.(xhtml|html|htm)$/i, '')  // 去掉扩展名
+                   .replace(/_split_\d+$/, '');   // 去掉 _split_002 后缀
                 
-                if (itemHrefClean === hrefClean || item.href === href || href.includes(item.href) || item.href.includes(href)) {
+                const itemHrefNorm = normalizeHref(item.href);
+                const hrefNorm = normalizeHref(href);
+                
+                if (itemHrefNorm === hrefNorm || item.href === href || href.includes(item.href) || item.href.includes(href)) {
                   return item.label;
                 }
                 if (item.subitems) {
@@ -201,8 +207,16 @@ export default function Reader() {
               return '';
             };
             const title = findTitle(tocItems);
-            console.log('[Reader] Chapter title:', title, 'for href:', href);
-            setCurrentChapterTitle(title || '');
+            
+            // 如果 TOC 匹配失败，用文件名作为章节名（去掉路径和扩展名）
+            let chapterName = title;
+            if (!chapterName) {
+              const match = href.match(/([^/]+?)(?:\.xhtml|\.html|\.htm)?(?:#.*)?$/i);
+              chapterName = match ? match[1] : '';
+            }
+            
+            console.log('[Reader] Chapter title:', chapterName, 'for href:', href, 'TOC items:', tocItems.length);
+            setCurrentChapterTitle(chapterName || '');
           }
 
           // 翻页后重新绑定文本选择（因为 iframe 的 document 会变化）
@@ -598,6 +612,10 @@ export default function Reader() {
       const range = rendition.getRange(cfiRange);
       if (!range) return '';
       
+      // 获取 range 所在的 document（可能在 iframe 内）
+      const doc = range.startContainer?.ownerDocument || range.commonAncestorContainer?.ownerDocument;
+      if (!doc) return '';
+      
       // 从 range 的 startContainer 向上找到段落级别的元素（p, div, li 等）
       let node: Node | null = range.startContainer;
       while (node && node.nodeType !== 1) {
@@ -607,7 +625,7 @@ export default function Reader() {
       // 继续向上找到段落元素
       while (node) {
         const tagName = (node as Element).tagName?.toLowerCase();
-        if (tagName === 'p' || tagName === 'div' || tagName === 'li' || tagName === 'section') {
+        if (tagName === 'p' || tagName === 'div' || tagName === 'li' || tagName === 'section' || tagName === 'body') {
           break;
         }
         node = node.parentNode;
@@ -618,18 +636,19 @@ export default function Reader() {
       const fullText = (node as Element).textContent || '';
       if (!fullText) return '';
       
-      // 用正则提取包含该词的句子（以句号、问号、感叹号为边界）
+      // 用正则提取包含该词的句子（以句号、问号、感叹号、换行为边界）
       const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp(`[^.!?]*${escapedWord}[^.!?]*[.!?]?`, 'i');
+      const regex = new RegExp(`[^.!?\\n]*${escapedWord}[^.!?\\n]*[.!?]?`, 'i');
       const match = fullText.match(regex);
       
-      if (match && match[0].trim().length > 0) {
+      if (match && match[0].trim().length > word.length) {
         return match[0].trim();
       }
       
-      // 如果没匹配到，返回段落的前 200 字符
-      return fullText.substring(0, 200).trim();
-    } catch {
+      // 如果没匹配到完整句子，返回段落的前 300 字符
+      return fullText.substring(0, 300).trim();
+    } catch (e) {
+      console.warn('[Reader] Failed to extract sentence:', e);
       return '';
     }
   }
