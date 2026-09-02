@@ -47,7 +47,14 @@ export default function NotesPage() {
 
   // 生词按章节分组
   const grouped = vocab.reduce<Record<string, VocabularyWord[]>>((acc, w) => {
-    const key = w.chapterTitle || `章节 ${w.chapterHref}`;
+    // 清理 chapterHref：去掉路径前缀和文件扩展名，只显示章节名
+    let chapterName = w.chapterTitle;
+    if (!chapterName && w.chapterHref) {
+      // 从 href 提取章节名：OEBPS/chapter1.xhtml -> chapter1
+      const match = w.chapterHref.match(/([^/]+?)(?:\.xhtml|\.html|\.htm)?$/i);
+      chapterName = match ? match[1] : w.chapterHref;
+    }
+    const key = chapterName || '未知章节';
     (acc[key] ||= []).push(w);
     return acc;
   }, {});
@@ -132,17 +139,17 @@ export default function NotesPage() {
                       className="vocab-action-btn"
                       onClick={() => incrementReview(w.id)}
                       title="标记已复习"
-                      style={{ color: 'var(--success)' }}
+                      style={{ color: 'var(--success)', fontSize: '12px' }}
                     >
-                      <CheckIcon />
+                      ✓ {w.reviewCount}
                     </button>
                     <button
                       className="vocab-action-btn"
                       onClick={() => { if (confirm(`确定删除 "${w.word}" 吗？`)) removeWord(w.id); }}
                       title="删除"
-                      style={{ color: 'var(--danger)' }}
+                      style={{ color: 'var(--danger)', fontSize: '12px' }}
                     >
-                      <TrashIcon />
+                      删除
                     </button>
                   </div>
                 </div>

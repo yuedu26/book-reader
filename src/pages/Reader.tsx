@@ -67,6 +67,8 @@ export default function Reader() {
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const prevPageModeRef = useRef(settings.pageMode);
   const pageTurnLockRef = useRef(0);
+  const viewerClickHandlerRef = useRef<((ev: MouseEvent) => void) | null>(null);
+  const viewerElementRef = useRef<HTMLElement | null>(null);
 
   // Initialize epub
   useEffect(() => {
@@ -184,7 +186,8 @@ export default function Reader() {
           if (href) {
             const findTitle = (items: Chapter[]): string => {
               for (const item of items) {
-                if (item.href === href || href.includes(item.href)) return item.label;
+                // 双向匹配：TOC href 可能带路径前缀或不带
+                if (item.href === href || href.includes(item.href) || item.href.includes(href)) return item.label;
                 if (item.subitems) {
                   const found = findTitle(item.subitems);
                   if (found) return found;
@@ -196,50 +199,54 @@ export default function Reader() {
             setCurrentChapterTitle(title || '');
           }
 
-          // 翻页后重新绑定点击事件（因为 iframe 的 document 会变化）
+          // 翻页后重新绑定文本选择（因为 iframe 的 document 会变化）
           setTimeout(() => {
             try {
               const contents = rendition.getContents?.() ?? [];
-              contents.forEach((c: any) => bindPageEvents(c?.document));
+              contents.forEach((c: any) => bindTextSelection(c?.document));
             } catch (e) {
-              console.warn('[Reader] Failed to bind page events:', e);
+              console.warn('[Reader] Failed to bind text selection:', e);
             }
           }, 300);
         });
 
-        // 绑定点击翻页与文本选择（每次小节渲染后对新 document 绑定，WeakSet 去重）
-        const boundDocs = new WeakSet<any>();
+        // 绑定点击翻页（直接在 viewer 容器上绑定，最可靠）
+        const viewerClickHandler = (ev: MouseEvent) => {
+          const sel = window.getSelection?.()?.toString?.();
+          if (sel && sel.trim().length > 0) return;
 
-        const bindPageEvents = (doc: any) => {
+          const rect = viewerRef.current?.getBoundingClientRect();
+          if (!rect) return;
+          const x = ev.clientX - rect.left;
+          const width = rect.width;
+          setSelectionPopup(null);
+
+          if (x < width * 0.3) {
+            if (Date.now() - pageTurnLockRef.current < 500) return;
+            pageTurnLockRef.current = Date.now();
+            rendition.prev();
+          } else if (x > width * 0.7) {
+            if (Date.now() - pageTurnLockRef.current < 500) return;
+            pageTurnLockRef.current = Date.now();
+            rendition.next();
+          } else {
+            setShowToolbar(prev => !prev);
+          }
+        };
+
+        viewerClickHandlerRef.current = viewerClickHandler;
+        const viewerElement = viewerRef.current;
+        viewerElementRef.current = viewerElement;
+        if (viewerElement) {
+          viewerElement.addEventListener('click', viewerClickHandler);
+        }
+
+        // 绑定 iframe 内的文本选择
+        const boundDocs = new WeakSet<any>();
+        const bindTextSelection = (doc: any) => {
           if (!doc || boundDocs.has(doc)) return;
           boundDocs.add(doc);
 
-          // 点击翻页：桌面与移动端 tap 都触发 click，避免 touchend+click 双翻页
-          doc.addEventListener('click', (ev: MouseEvent) => {
-            const win = doc.defaultView || doc.ownerDocument?.defaultView;
-            const sel = win?.getSelection?.()?.toString?.();
-            if (sel && sel.trim().length > 0) return;
-
-            // 用 iframe 内窗口的宽度（ev.clientX 是相对于 iframe 的坐标，必须用 iframe 的宽度）
-            const width = win?.innerWidth || 0;
-            if (!width) return;
-            const x = ev.clientX;
-            setSelectionPopup(null);
-
-            if (x < width * 0.3) {
-              if (Date.now() - pageTurnLockRef.current < 500) return;
-              pageTurnLockRef.current = Date.now();
-              rendition.prev();
-            } else if (x > width * 0.7) {
-              if (Date.now() - pageTurnLockRef.current < 500) return;
-              pageTurnLockRef.current = Date.now();
-              rendition.next();
-            } else {
-              setShowToolbar(prev => !prev);
-            }
-          });
-
-          // iOS Safari 兼容：mouseup 触发文本选择
           doc.addEventListener('mouseup', () => {
             const win = doc.defaultView || doc.ownerDocument?.defaultView;
             const sel = win?.getSelection?.()?.toString?.();
@@ -325,9 +332,9 @@ export default function Reader() {
           setTimeout(() => {
             try {
               const contents = rendition.getContents?.() ?? [];
-              contents.forEach((c: any) => bindPageEvents(c?.document));
+              contents.forEach((c: any) => bindTextSelection(c?.document));
             } catch (e) {
-              console.warn('[Reader] Failed to bind page events:', e);
+              console.warn('[Reader] Failed to bind text selection:', e);
             }
           }, 300);
         } catch (displayErr) {
@@ -403,6 +410,11 @@ export default function Reader() {
       destroyed = true;
       flushReadingTime();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+
+      // 清理 viewer 点击事件
+      if (viewerElementRef.current && viewerClickHandlerRef.current) {
+        viewerElementRef.current.removeEventListener('click', viewerClickHandlerRef.current);
+      }
 
       // 清理
       if (renditionRef.current) {
