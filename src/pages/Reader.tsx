@@ -196,7 +196,15 @@ export default function Reader() {
             setCurrentChapterTitle(title || '');
           }
 
-          // 点击翻页与文本选择统一在 rendered 事件里绑定（见 bindPageEvents）
+          // 翻页后重新绑定点击事件（因为 iframe 的 document 会变化）
+          setTimeout(() => {
+            try {
+              const contents = rendition.getContents?.() ?? [];
+              contents.forEach((c: any) => bindPageEvents(c?.document));
+            } catch (e) {
+              console.warn('[Reader] Failed to bind page events:', e);
+            }
+          }, 300);
         });
 
         // 绑定点击翻页与文本选择（每次小节渲染后对新 document 绑定，WeakSet 去重）
@@ -219,11 +227,11 @@ export default function Reader() {
             setSelectionPopup(null);
 
             if (x < width * 0.3) {
-              if (Date.now() - pageTurnLockRef.current < 250) return;
+              if (Date.now() - pageTurnLockRef.current < 500) return;
               pageTurnLockRef.current = Date.now();
               rendition.prev();
             } else if (x > width * 0.7) {
-              if (Date.now() - pageTurnLockRef.current < 250) return;
+              if (Date.now() - pageTurnLockRef.current < 500) return;
               pageTurnLockRef.current = Date.now();
               rendition.next();
             } else {
@@ -246,15 +254,6 @@ export default function Reader() {
             }
           });
         };
-
-        rendition.on('rendered', () => {
-          try {
-            const contents = rendition.getContents?.() ?? [];
-            contents.forEach((c: any) => bindPageEvents(c?.document));
-          } catch (e) {
-            console.warn('[Reader] Failed to bind page events:', e);
-          }
-        });
 
         // 监听文本选择
         rendition.on('selected', (cfiRange: string, contents: any) => {
@@ -321,6 +320,16 @@ export default function Reader() {
             await rendition.display();
           }
           console.log('[Reader] Display completed successfully');
+          
+          // 初始化完成后绑定点击事件
+          setTimeout(() => {
+            try {
+              const contents = rendition.getContents?.() ?? [];
+              contents.forEach((c: any) => bindPageEvents(c?.document));
+            } catch (e) {
+              console.warn('[Reader] Failed to bind page events:', e);
+            }
+          }, 300);
         } catch (displayErr) {
           console.error('[Reader] Display failed:', displayErr);
           // 尝试从第一页开始
