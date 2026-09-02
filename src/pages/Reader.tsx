@@ -19,7 +19,13 @@ import type { Chapter, Highlight } from '../types';
 const MARK_COLOR = '#0A84FF';
 
 function underlineStyles() {
-  return { stroke: MARK_COLOR, 'stroke-opacity': 0.9 };
+  return {
+    stroke: MARK_COLOR,
+    'stroke-opacity': 0.85,
+    'stroke-width': 2,
+    'stroke-linecap': 'round',
+    'stroke-linejoin': 'round',
+  };
 }
 
 export default function Reader() {
@@ -207,8 +213,9 @@ export default function Reader() {
             const sel = win?.getSelection?.()?.toString?.();
             if (sel && sel.trim().length > 0) return;
 
-            // 用 iframe 视口宽判断区域（documentElement.clientWidth 在分页列布局下会算错导致来回翻）
-            const width = win?.innerWidth || 0;
+            // 用 iframe 元素的实际渲染宽度（epub.js paginated 模式下 innerWidth 会返回整个列容器宽度）
+            const iframe = doc.defaultView?.frameElement as HTMLIFrameElement | null;
+            const width = iframe?.getBoundingClientRect().width || doc.documentElement?.clientWidth || 0;
             if (!width) return;
             const x = ev.clientX;
             setSelectionPopup(null);
@@ -548,7 +555,45 @@ export default function Reader() {
     setNoteDialog({ highlightId: hl.id, text: hl.text });
   };
 
-  // Handle lookup（查词：记录生词 + 调起欧路词典离线查词）
+  // 从 epub.js range 中提取包含选中词的完整句子作为例句
+function extractSentenceFromRange(rendition: any, cfiRange: string, word: string): string {
+  try {
+    const range = rendition.getRange(cfiRange);
+    if (!range) return '';
+    
+    // 获取 range 所在父元素的完整文本
+    const parent = range.commonAncestorContainer;
+    const textNode = parent.nodeType === 3 ? parent : parent.firstChild;
+    let fullText = '';
+    
+    // 向上找到包含完整段落的节点
+    let node: Node | null = textNode;
+    while (node && node.nodeType !== 1) {
+      node = node.parentNode;
+    }
+    if (node) {
+      fullText = (node as Element).textContent || '';
+    }
+    
+    if (!fullText) return '';
+    
+    // 用正则提取包含该词的句子（以句号、问号、感叹号、换行为边界）
+    const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`[^.!?\\n]*${escapedWord}[^.!?\\n]*[.!?]?`, 'i');
+    const match = fullText.match(regex);
+    
+    if (match) {
+      return match[0].trim();
+    }
+    
+    // 如果没匹配到，返回 range 周围的上下文
+    return fullText.substring(0, 200).trim();
+  } catch {
+    return '';
+  }
+}
+
+// Handle lookup（查词：记录生词 + 调起欧路词典离线查词）
   const handleLookup = () => {
     if (!selectionPopup) return;
     const text = typeof selectionPopup.text === 'string' 
@@ -562,13 +607,16 @@ export default function Reader() {
       const state = useAppStore.getState();
       const exists = state.vocabulary.some(v => v.bookId === bookId && v.word === word);
       if (!exists) {
+        // 提取该词所在的完整句子作为例句
+        const exampleSentence = extractSentenceFromRange(renditionRef.current, selectionPopup.cfiRange, word);
+        
         addWord({
           id: generateId(),
           bookId,
           chapterHref: book?.currentChapterHref || '',
           chapterTitle: currentChapterTitle,
           word,
-          context: text,
+          context: exampleSentence || text,  // 优先用完整句子，否则用选中文本
           createdAt: Date.now(),
           reviewCount: 0,
         });
