@@ -47,13 +47,20 @@ export default function NotesPage() {
 
   // 生词按章节分组
   const grouped = vocab.reduce<Record<string, VocabularyWord[]>>((acc, w) => {
-    // 清理 chapterHref：去掉路径前缀和文件扩展名，只显示章节名
     let chapterName = w.chapterTitle;
+    
+    // 清理 chapterTitle：去掉 HTML 标签
+    if (chapterName) {
+      chapterName = chapterName.replace(/<[^>]*>/g, '').trim();
+    }
+    
+    // 如果 chapterTitle 为空或无效，从 chapterHref 提取
     if (!chapterName && w.chapterHref) {
       // 从 href 提取章节名：OEBPS/chapter1.xhtml -> chapter1
       const match = w.chapterHref.match(/([^/]+?)(?:\.xhtml|\.html|\.htm)?$/i);
       chapterName = match ? match[1] : w.chapterHref;
     }
+    
     const key = chapterName || '未知章节';
     (acc[key] ||= []).push(w);
     return acc;

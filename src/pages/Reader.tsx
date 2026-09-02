@@ -186,8 +186,13 @@ export default function Reader() {
           if (href) {
             const findTitle = (items: Chapter[]): string => {
               for (const item of items) {
-                // 双向匹配：TOC href 可能带路径前缀或不带
-                if (item.href === href || href.includes(item.href) || item.href.includes(href)) return item.label;
+                // 宽松匹配：去掉路径前缀和扩展名后比较
+                const itemHrefClean = item.href.replace(/.*\//, '').replace(/\.(xhtml|html|htm)$/i, '');
+                const hrefClean = href.replace(/.*\//, '').replace(/\.(xhtml|html|htm)$/i, '');
+                
+                if (itemHrefClean === hrefClean || item.href === href || href.includes(item.href) || item.href.includes(href)) {
+                  return item.label;
+                }
                 if (item.subitems) {
                   const found = findTitle(item.subitems);
                   if (found) return found;
@@ -196,6 +201,7 @@ export default function Reader() {
               return '';
             };
             const title = findTitle(tocItems);
+            console.log('[Reader] Chapter title:', title, 'for href:', href);
             setCurrentChapterTitle(title || '');
           }
 
@@ -210,23 +216,30 @@ export default function Reader() {
           }, 300);
         });
 
-        // 绑定点击翻页（直接在 viewer 容器上绑定，最可靠）
+        // 绑定点击翻页（绑定到 document 上，确保能捕获所有点击）
         const viewerClickHandler = (ev: MouseEvent) => {
           const sel = window.getSelection?.()?.toString?.();
           if (sel && sel.trim().length > 0) return;
 
           const rect = viewerRef.current?.getBoundingClientRect();
           if (!rect) return;
+          
+          // 检查点击是否在 viewer 区域内
+          if (ev.clientX < rect.left || ev.clientX > rect.right || 
+              ev.clientY < rect.top || ev.clientY > rect.bottom) {
+            return;
+          }
+          
           const x = ev.clientX - rect.left;
           const width = rect.width;
           setSelectionPopup(null);
 
           if (x < width * 0.3) {
-            if (Date.now() - pageTurnLockRef.current < 500) return;
+            if (Date.now() - pageTurnLockRef.current < 300) return;
             pageTurnLockRef.current = Date.now();
             rendition.prev();
           } else if (x > width * 0.7) {
-            if (Date.now() - pageTurnLockRef.current < 500) return;
+            if (Date.now() - pageTurnLockRef.current < 300) return;
             pageTurnLockRef.current = Date.now();
             rendition.next();
           } else {
@@ -235,11 +248,7 @@ export default function Reader() {
         };
 
         viewerClickHandlerRef.current = viewerClickHandler;
-        const viewerElement = viewerRef.current;
-        viewerElementRef.current = viewerElement;
-        if (viewerElement) {
-          viewerElement.addEventListener('click', viewerClickHandler);
-        }
+        document.addEventListener('click', viewerClickHandler);
 
         // 绑定 iframe 内的文本选择
         const boundDocs = new WeakSet<any>();
@@ -412,8 +421,8 @@ export default function Reader() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
 
       // 清理 viewer 点击事件
-      if (viewerElementRef.current && viewerClickHandlerRef.current) {
-        viewerElementRef.current.removeEventListener('click', viewerClickHandlerRef.current);
+      if (viewerClickHandlerRef.current) {
+        document.removeEventListener('click', viewerClickHandlerRef.current);
       }
 
       // 清理
