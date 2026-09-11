@@ -67,8 +67,6 @@ export default function Reader() {
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const prevPageModeRef = useRef(settings.pageMode);
   const pageTurnLockRef = useRef(0);
-  const viewerTouchEndHandlerRef = useRef<((ev: TouchEvent) => void) | null>(null);
-  const viewerElementRef = useRef<HTMLElement | null>(null);
 
   // Initialize epub
   useEffect(() => {
@@ -222,73 +220,95 @@ export default function Reader() {
             setCurrentChapterTitle(chapterName || '');
           }
 
-          // 翻页后重新绑定文本选择（因为 iframe 的 document 会变化）
+          // 翻页后重新绑定点击事件（因为 iframe 的 document 会变化）
           setTimeout(() => {
             try {
               const contents = rendition.getContents?.() ?? [];
-              contents.forEach((c: any) => bindTextSelection(c?.document));
+              console.log('[Reader] Binding click events to', contents.length, 'contents');
+              contents.forEach((c: any) => {
+                const doc = c?.document;
+                if (!doc) return;
+                if ((doc as any).__pageClickBound) return;
+                (doc as any).__pageClickBound = true;
+                
+                // 点击翻页（桌面端）
+                doc.addEventListener('click', (ev: MouseEvent) => {
+                  // 有选中文本时不翻页，避免与文本选择菜单冲突
+                  const win = doc.defaultView || doc.ownerDocument?.defaultView;
+                  const sel = win?.getSelection?.()?.toString?.();
+                  if (sel && sel.trim().length > 0) return;
+
+                  const width = doc.documentElement?.clientWidth || doc.body?.clientWidth || 0;
+                  if (!width) return;
+                  const x = ev.clientX;
+                  setSelectionPopup(null);
+                  if (x < width * 0.3) {
+                    rendition.prev();
+                  } else if (x > width * 0.7) {
+                    rendition.next();
+                  } else {
+                    setShowToolbar(prev => !prev);
+                  }
+                });
+
+                // 触摸翻页（iOS/移动端）
+                let touchStartX = 0;
+                let touchStartY = 0;
+                doc.addEventListener('touchstart', (ev: TouchEvent) => {
+                  const touch = ev.touches[0];
+                  touchStartX = touch.clientX;
+                  touchStartY = touch.clientY;
+                }, { passive: true });
+
+                doc.addEventListener('touchend', (ev: TouchEvent) => {
+                  // 有选中文本时不翻页
+                  const win = doc.defaultView || doc.ownerDocument?.defaultView;
+                  const sel = win?.getSelection?.()?.toString?.();
+                  if (sel && sel.trim().length > 0) return;
+
+                  const touch = ev.changedTouches[0];
+                  const deltaX = Math.abs(touch.clientX - touchStartX);
+                  const deltaY = Math.abs(touch.clientY - touchStartY);
+                  
+                  // 判断是点击（移动距离小于 10px）而不是滑动
+                  if (deltaX < 10 && deltaY < 10) {
+                    const width = doc.documentElement?.clientWidth || doc.body?.clientWidth || 0;
+                    if (!width) return;
+                    const x = touch.clientX;
+                    setSelectionPopup(null);
+                    if (x < width * 0.3) {
+                      rendition.prev();
+                    } else if (x > width * 0.7) {
+                      rendition.next();
+                    } else {
+                      setShowToolbar(prev => !prev);
+                    }
+                  }
+                }, { passive: true });
+
+                // iOS Safari 兼容：mouseup 事件检测文本选择
+                doc.addEventListener('mouseup', (ev: MouseEvent) => {
+                  const win = doc.defaultView || doc.ownerDocument?.defaultView;
+                  const sel = win?.getSelection?.()?.toString?.();
+                  if (sel && sel.trim().length > 0) {
+                    // 延迟触发 selected 事件
+                    setTimeout(() => {
+                      const range = win?.getSelection()?.getRangeAt(0);
+                      if (range) {
+                        const cfiRange = rendition.cfis?.fromRange(range);
+                        if (cfiRange) {
+                          rendition.emit('selected', cfiRange, sel);
+                        }
+                      }
+                    }, 100);
+                  }
+                });
+              });
             } catch (e) {
-              console.warn('[Reader] Failed to bind text selection:', e);
+              console.warn('[Reader] Failed to bind click events:', e);
             }
-          }, 300);
+          }, 500);
         });
-
-        // 绑定点击翻页（用 touchend，iOS 更可靠）
-        const viewerTouchEndHandler = (ev: TouchEvent) => {
-          try {
-            const sel = window.getSelection?.()?.toString?.();
-            if (sel && sel.trim().length > 0) return;
-
-            const touch = ev.changedTouches[0];
-            const rect = viewerRef.current?.getBoundingClientRect();
-            if (!rect) return;
-            
-            const x = touch.clientX - rect.left;
-            const width = rect.width;
-            setSelectionPopup(null);
-
-            if (x < width * 0.3) {
-              if (Date.now() - pageTurnLockRef.current < 500) return;
-              pageTurnLockRef.current = Date.now();
-              rendition.prev();
-            } else if (x > width * 0.7) {
-              if (Date.now() - pageTurnLockRef.current < 500) return;
-              pageTurnLockRef.current = Date.now();
-              rendition.next();
-            } else {
-              setShowToolbar(prev => !prev);
-            }
-          } catch (e) {
-            console.warn('[Reader] Touch end handler error:', e);
-          }
-        };
-
-        viewerTouchEndHandlerRef.current = viewerTouchEndHandler;
-        const viewerElement = viewerRef.current;
-        if (viewerElement) {
-          viewerElement.addEventListener('touchend', viewerTouchEndHandler, { passive: true });
-        }
-
-        // 绑定 iframe 内的文本选择
-        const boundDocs = new WeakSet<any>();
-        const bindTextSelection = (doc: any) => {
-          if (!doc || boundDocs.has(doc)) return;
-          boundDocs.add(doc);
-
-          doc.addEventListener('mouseup', () => {
-            const win = doc.defaultView || doc.ownerDocument?.defaultView;
-            const sel = win?.getSelection?.()?.toString?.();
-            if (sel && sel.trim().length > 0) {
-              setTimeout(() => {
-                const range = win?.getSelection()?.getRangeAt(0);
-                if (range) {
-                  const cfiRange = rendition.cfis?.fromRange(range);
-                  if (cfiRange) rendition.emit('selected', cfiRange, sel);
-                }
-              }, 100);
-            }
-          });
-        };
 
         // 监听文本选择
         rendition.on('selected', (cfiRange: string, contents: any) => {
@@ -355,16 +375,6 @@ export default function Reader() {
             await rendition.display();
           }
           console.log('[Reader] Display completed successfully');
-          
-          // 初始化完成后绑定点击事件
-          setTimeout(() => {
-            try {
-              const contents = rendition.getContents?.() ?? [];
-              contents.forEach((c: any) => bindTextSelection(c?.document));
-            } catch (e) {
-              console.warn('[Reader] Failed to bind text selection:', e);
-            }
-          }, 300);
         } catch (displayErr) {
           console.error('[Reader] Display failed:', displayErr);
           // 尝试从第一页开始
@@ -438,12 +448,6 @@ export default function Reader() {
       destroyed = true;
       flushReadingTime();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-
-      // 清理 viewer 事件
-      const viewerElement = viewerRef.current;
-      if (viewerElement && viewerTouchEndHandlerRef.current) {
-        viewerElement.removeEventListener('touchend', viewerTouchEndHandlerRef.current);
-      }
 
       // 清理
       if (renditionRef.current) {

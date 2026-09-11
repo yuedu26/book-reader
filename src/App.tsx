@@ -74,6 +74,22 @@ function BackupReminder() {
 function AppContent() {
   const settings = useAppStore(s => s.settings);
   const theme = themeMap[settings.theme];
+  const books = useAppStore(s => s.books);
+
+  // 检测 standalone 模式
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [showStandaloneWarning, setShowStandaloneWarning] = useState(false);
+
+  useEffect(() => {
+    const standalone = window.matchMedia('(display-mode: standalone)').matches || 
+                       (window.navigator as any).standalone === true;
+    setIsStandalone(standalone);
+    
+    // 如果是 standalone 模式且没有书籍，显示提示
+    if (standalone && books.length === 0) {
+      setShowStandaloneWarning(true);
+    }
+  }, [books.length]);
 
   // 让 iOS 顶部状态栏/地址栏颜色跟随当前主题（阅读背景色）
   useEffect(() => {
@@ -91,6 +107,41 @@ function AppContent() {
                    settings.theme === 'white' ? '#FFFFFF' :
                    theme.bg,
     } as React.CSSProperties}>
+      {/* Standalone 模式提示 */}
+      {showStandaloneWarning && (
+        <div style={{
+          padding: '12px 16px',
+          background: '#FFF3CD',
+          borderBottom: '1px solid #FFEAA7',
+          color: '#856404',
+          fontSize: 13,
+          lineHeight: 1.5,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <div>
+            <strong>️ Standalone 模式</strong>
+            <div style={{ marginTop: 4 }}>
+              检测到这是从主屏幕打开的。Safari 和主屏幕的数据是隔离的，需要重新导入书籍。
+            </div>
+          </div>
+          <button 
+            onClick={() => setShowStandaloneWarning(false)}
+            style={{
+              background: 'none',
+              border: 'none',
+              fontSize: 20,
+              color: '#856404',
+              cursor: 'pointer',
+              padding: '0 8px',
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       <Routes>
         <Route path="/" element={<Bookshelf />} />
         <Route path="/reader/:bookId" element={<Reader />} />
