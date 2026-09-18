@@ -224,23 +224,19 @@ export default function Reader() {
           setTimeout(() => {
             try {
               const contents = rendition.getContents?.() ?? [];
-              console.log('[Reader] Binding click events to', contents.length, 'contents');
               contents.forEach((c: any) => {
                 const doc = c?.document;
                 if (!doc) return;
                 if ((doc as any).__pageClickBound) return;
                 (doc as any).__pageClickBound = true;
-                
-                // 点击翻页（桌面端）
-                doc.addEventListener('click', (ev: MouseEvent) => {
-                  // 有选中文本时不翻页，避免与文本选择菜单冲突
-                  const win = doc.defaultView || doc.ownerDocument?.defaultView;
-                  const sel = win?.getSelection?.()?.toString?.();
-                  if (sel && sel.trim().length > 0) return;
 
-                  const width = doc.documentElement?.clientWidth || doc.body?.clientWidth || 0;
+                const win = doc.defaultView || doc.ownerDocument?.defaultView;
+                const isTouchDevice = 'ontouchstart' in window;
+
+                const handleTap = (x: number) => {
+                  // 用 iframe 视口宽度判断区域（documentElement.clientWidth 在分页列布局下可能是内容总宽）
+                  const width = win?.innerWidth || doc.documentElement?.clientWidth || 0;
                   if (!width) return;
-                  const x = ev.clientX;
                   setSelectionPopup(null);
                   if (x < width * 0.3) {
                     rendition.prev();
@@ -249,65 +245,55 @@ export default function Reader() {
                   } else {
                     setShowToolbar(prev => !prev);
                   }
-                });
+                };
 
-                // 触摸翻页（iOS/移动端）
-                let touchStartX = 0;
-                let touchStartY = 0;
-                doc.addEventListener('touchstart', (ev: TouchEvent) => {
-                  const touch = ev.touches[0];
-                  touchStartX = touch.clientX;
-                  touchStartY = touch.clientY;
-                }, { passive: true });
+                if (isTouchDevice) {
+                  // 移动端：只用 touchend（避免 touchend + click 双触发导致来回翻）
+                  let touchStartX = 0;
+                  let touchStartY = 0;
+                  doc.addEventListener('touchstart', (ev: TouchEvent) => {
+                    const touch = ev.touches[0];
+                    touchStartX = touch.clientX;
+                    touchStartY = touch.clientY;
+                  }, { passive: true });
 
-                doc.addEventListener('touchend', (ev: TouchEvent) => {
-                  // 有选中文本时不翻页
-                  const win = doc.defaultView || doc.ownerDocument?.defaultView;
-                  const sel = win?.getSelection?.()?.toString?.();
-                  if (sel && sel.trim().length > 0) return;
-
-                  const touch = ev.changedTouches[0];
-                  const deltaX = Math.abs(touch.clientX - touchStartX);
-                  const deltaY = Math.abs(touch.clientY - touchStartY);
-                  
-                  // 判断是点击（移动距离小于 10px）而不是滑动
-                  if (deltaX < 10 && deltaY < 10) {
-                    const width = doc.documentElement?.clientWidth || doc.body?.clientWidth || 0;
-                    if (!width) return;
-                    const x = touch.clientX;
-                    setSelectionPopup(null);
-                    if (x < width * 0.3) {
-                      rendition.prev();
-                    } else if (x > width * 0.7) {
-                      rendition.next();
-                    } else {
-                      setShowToolbar(prev => !prev);
+                  doc.addEventListener('touchend', (ev: TouchEvent) => {
+                    const sel = win?.getSelection?.()?.toString?.();
+                    if (sel && sel.trim().length > 0) return;
+                    const touch = ev.changedTouches[0];
+                    const deltaX = Math.abs(touch.clientX - touchStartX);
+                    const deltaY = Math.abs(touch.clientY - touchStartY);
+                    if (deltaX < 10 && deltaY < 10) {
+                      handleTap(touch.clientX);
                     }
-                  }
-                }, { passive: true });
+                  }, { passive: true });
+                } else {
+                  // 桌面端：只用 click
+                  doc.addEventListener('click', (ev: MouseEvent) => {
+                    const sel = win?.getSelection?.()?.toString?.();
+                    if (sel && sel.trim().length > 0) return;
+                    handleTap(ev.clientX);
+                  });
+                }
 
                 // iOS Safari 兼容：mouseup 事件检测文本选择
-                doc.addEventListener('mouseup', (ev: MouseEvent) => {
-                  const win = doc.defaultView || doc.ownerDocument?.defaultView;
+                doc.addEventListener('mouseup', () => {
                   const sel = win?.getSelection?.()?.toString?.();
                   if (sel && sel.trim().length > 0) {
-                    // 延迟触发 selected 事件
                     setTimeout(() => {
                       const range = win?.getSelection()?.getRangeAt(0);
                       if (range) {
                         const cfiRange = rendition.cfis?.fromRange(range);
-                        if (cfiRange) {
-                          rendition.emit('selected', cfiRange, sel);
-                        }
+                        if (cfiRange) rendition.emit('selected', cfiRange, sel);
                       }
                     }, 100);
                   }
                 });
               });
             } catch (e) {
-              console.warn('[Reader] Failed to bind click events:', e);
+              console.warn('[Reader] Failed to bind page events:', e);
             }
-          }, 500);
+          }, 300);
         });
 
         // 监听文本选择

@@ -80,7 +80,7 @@ a { color: var(--primary); text-decoration: none; }
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: calc(var(--tab-height) + var(--safe-bottom) + 8px);
+  padding-bottom: calc(var(--tab-height) + 8px);
 }
 
 /* ===== Tab Bar ===== */
@@ -88,8 +88,8 @@ a { color: var(--primary); text-decoration: none; }
   display: flex;
   align-items: center;
   justify-content: space-around;
-  height: calc(var(--tab-height) + var(--safe-bottom));
-  padding-bottom: var(--safe-bottom);
+  height: var(--tab-height);
+  padding-bottom: 0;
   background: var(--card-bg);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
