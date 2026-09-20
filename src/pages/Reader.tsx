@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import ePub from 'epubjs';
 import { useAppStore, themeMap } from '../stores';
 import { getEpubFile } from '../services/db';
 import { generateId, copyTextToClipboard } from '../utils';
@@ -96,11 +97,7 @@ export default function Reader() {
         if (destroyed) return;
         console.log('[Reader] Buffer loaded, size:', buffer.byteLength);
 
-        // 动态导入 epubjs
-        const ePubModule = await import('epubjs');
-        const ePub = ePubModule.default as any;
-        
-        // 创建 book 实例
+        // 创建 book 实例（epubjs 已静态导入，避免 standalone 模式动态 chunk 加载失败）
         const bookInstance = ePub(buffer);
         bookRef.current = bookInstance;
 

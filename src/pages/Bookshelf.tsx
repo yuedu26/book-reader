@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import ePub from 'epubjs';
 import { useAppStore } from '../stores';
 import { saveEpubFile } from '../services/db';
 import { generateId, formatRelativeTime } from '../utils';
@@ -49,7 +50,6 @@ async function parseEpubMetadata(buffer: ArrayBuffer): Promise<{
     throw new Error('文件内容为空');
   }
   
-  const ePub = (await import('epubjs')).default;
   const book = ePub(buffer);
   
   console.log('[EPUB] Waiting for ready...');
