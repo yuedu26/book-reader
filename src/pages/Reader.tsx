@@ -61,6 +61,8 @@ export default function Reader() {
   const [currentPage, setCurrentPage] = useState(0); // 当前屏幕页码（1-based）
   const [progressPercent, setProgressPercent] = useState(0); // 进度百分比 0-100
   const [generatingPages, setGeneratingPages] = useState(false);
+  const [chapterPage, setChapterPage] = useState(0); // 当前章节内页码
+  const [chapterTotalPages, setChapterTotalPages] = useState(0); // 当前章节总页数
   const [selectionPopup, setSelectionPopup] = useState<{
     y: number; text: string; cfiRange: string; isSingleWord: boolean;
   } | null>(null);
@@ -73,6 +75,7 @@ export default function Reader() {
   const prevPageModeRef = useRef(settings.pageMode);
   const pageTurnLockRef = useRef(0);
   const generatePagesRef = useRef<(() => void) | null>(null);
+  const pageScrollLeftRef = useRef(0);
 
   // Initialize epub
   useEffect(() => {
@@ -144,7 +147,7 @@ export default function Reader() {
         console.log('[Reader] Creating rendition...');
         // 用窗口尺寸作为基准（避免容器 clientWidth 在布局未完成时返回错误值导致分页每页内容过少）
         const containerWidth = window.innerWidth;
-        const containerHeight = window.innerHeight - 120; // 上下工具栏各 60px
+        const containerHeight = window.innerHeight; // 阅读区全屏
         console.log('[Reader] Rendition size:', containerWidth, 'x', containerHeight);
         
         const rendition = bookInstance.renderTo(container, {
@@ -181,7 +184,13 @@ export default function Reader() {
           const href = location.start?.href;
           
           if (cfi && bookId) {
-            // 计算当前页码与百分比（locations 已生成时）
+            // 章节内页码（epub.js 直接提供，可靠，随字体刷新）
+            const dispPage = location.start?.displayed?.page;
+            const dispTotal = location.start?.displayed?.total;
+            if (dispPage) setChapterPage(dispPage);
+            if (dispTotal) setChapterTotalPages(dispTotal);
+
+            // 计算全书页码与百分比（locations 已生成时）
             try {
               const locations = rendition.locations;
               if (locations && locations.length() > 0) {
@@ -216,37 +225,22 @@ export default function Reader() {
 
           // 更新章节标题
           if (href) {
-            // 打印 location 结构用于调试
-            console.log('[Reader] Location:', JSON.stringify(location.start).substring(0, 300));
-            
             const findTitle = (items: Chapter[]): string => {
               for (const item of items) {
-                // 极宽松匹配：去掉所有非字母数字字符后比较，并取末尾文件名部分
+                // 规范化：去锚点/查询/路径/扩展名，但保留 _split 后缀以区分各章节
                 const normalizeHref = (h: string) => {
-                  let s = h;
-                  // 去掉锚点
-                  s = s.split('#')[0];
-                  // 去掉查询参数
-                  s = s.split('?')[0];
-                  // 取文件名（去掉路径）
+                  let s = h.split('#')[0].split('?')[0];
                   s = s.split('/').pop() || s;
-                  // 去掉扩展名
                   s = s.replace(/\.(xhtml|html|htm)$/i, '');
-                  // 去掉 _split_XXX 后缀
-                  s = s.replace(/_split_\d+$/i, '');
-                  // 去掉空格和特殊字符
-                  s = s.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '').toLowerCase();
-                  return s;
+                  return s.trim();
                 };
-                
                 const itemHrefNorm = normalizeHref(item.href);
                 const hrefNorm = normalizeHref(href);
-                
-                if (itemHrefNorm && hrefNorm && (itemHrefNorm === hrefNorm || hrefNorm.includes(itemHrefNorm) || itemHrefNorm.includes(hrefNorm))) {
-                  return item.label;
-                }
-                // 也尝试原始匹配
-                if (item.href === href || href.includes(item.href) || item.href.includes(href)) {
+                // 精确匹配（考虑 URL 编码的空格）
+                const matches = itemHrefNorm === hrefNorm ||
+                  decodeURIComponent(itemHrefNorm) === hrefNorm ||
+                  itemHrefNorm === decodeURIComponent(hrefNorm);
+                if (matches) {
                   return item.label;
                 }
                 if (item.subitems) {
@@ -278,6 +272,7 @@ export default function Reader() {
         let pageScrollLeft = 0;
         container.addEventListener('scroll', (ev) => {
           pageScrollLeft = (ev.target as HTMLElement)?.scrollLeft || 0;
+          pageScrollLeftRef.current = pageScrollLeft;
         }, { capture: true, passive: true });
 
         const bindPageEvents = (doc: any, contents: any) => {
@@ -424,8 +419,8 @@ export default function Reader() {
           // 延迟重新分页，确保用正确的视口尺寸（解决"翻几页内容才变一下"的分页过细问题）
           setTimeout(() => {
             try {
-              rendition.resize(window.innerWidth, window.innerHeight - 120);
-              console.log('[Reader] Resized to', window.innerWidth, 'x', window.innerHeight - 120);
+              rendition.resize(window.innerWidth, window.innerHeight);
+              console.log('[Reader] Resized to', window.innerWidth, 'x', window.innerHeight);
             } catch (e) {
               console.warn('[Reader] Resize failed:', e);
             }
@@ -437,7 +432,13 @@ export default function Reader() {
             const r = rendition;
             if (!r) return;
             setGeneratingPages(true);
+            // 超时保护：generate 若卡住（某些 EPUB 章节加载失败），30 秒后放弃，fallback 到章节内页码
+            const timer = setTimeout(() => {
+              console.warn('[Reader] locations.generate timeout');
+              if (!destroyed) setGeneratingPages(false);
+            }, 30000);
             r.locations.generate(1200).then(() => {
+              clearTimeout(timer);
               if (destroyed) return;
               const total = r.locations.length();
               setTotalPages(total);
@@ -450,7 +451,9 @@ export default function Reader() {
                 }
               }
               setGeneratingPages(false);
-            }).catch(() => {
+            }).catch((e: any) => {
+              clearTimeout(timer);
+              console.warn('[Reader] locations.generate failed:', e);
               if (!destroyed) setGeneratingPages(false);
             });
           };
@@ -556,7 +559,7 @@ export default function Reader() {
         'font-family': fontStack + ' !important',
         'font-size': `${settings.fontSize}px !important`,
         'line-height': `${settings.lineHeight} !important`,
-        'padding': '20px !important',
+        'padding': 'calc(12px + env(safe-area-inset-top, 0px)) 20px 20px 20px !important',
         'margin': '0 !important',
       },
       // 所有元素继承 body 的字号/行高/字体，确保字号调节真正生效
@@ -592,7 +595,7 @@ export default function Reader() {
       // 字号/主题改变后触发重新分页（用窗口尺寸，避免 clientHeight 在 iOS 上含地址栏导致偏大）
       setTimeout(() => {
         try {
-          renditionRef.current?.resize(window.innerWidth, window.innerHeight - 120);
+          renditionRef.current?.resize(window.innerWidth, window.innerHeight);
         } catch (e) {
           console.warn('[Reader] Re-paginate after theme change failed:', e);
         }
@@ -633,14 +636,26 @@ export default function Reader() {
       const contents = renditionRef.current?.getContents?.();
       const doc = contents?.[0]?.document;
       if (!doc?.body) return '';
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
       const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
       let node: Node | null;
+      // 遍历文本节点，找「当前可视页」内的第一个非空文本（而不是整个章节的第一个字）
       while ((node = walker.nextNode())) {
         const text = node.textContent?.trim();
-        if (text && text.length > 1) {
-          const match = text.match(/[^.!?。！？\n]*[.!?。！？]?/);
-          const firstLine = (match ? match[0] : text).trim();
-          return firstLine.length > 30 ? firstLine.slice(0, 30) + '…' : firstLine;
+        if (!text || text.length < 2) continue;
+        try {
+          const range = doc.createRange();
+          range.selectNodeContents(node);
+          const rect = range.getBoundingClientRect();
+          // 屏幕坐标在可视页范围内（container 左边缘为 0）
+          if (rect.left >= -10 && rect.left < viewportWidth && rect.top >= -10 && rect.top < viewportHeight) {
+            const match = text.match(/[^.!?。！？\n]*[.!?。！？]?/);
+            const firstLine = (match ? match[0] : text).trim();
+            return firstLine.length > 30 ? firstLine.slice(0, 30) + '…' : firstLine;
+          }
+        } catch {
+          // 忽略单节点判断失败
         }
       }
       return '';
@@ -849,6 +864,10 @@ export default function Reader() {
     exportHighlightsAsText(highlights, [book], notesOnly);
   };
 
+  // 页码显示：优先全书页码（generate 成功），失败 fallback 章节内页码
+  const displayPage = totalPages > 0 ? currentPage : chapterPage;
+  const displayTotal = totalPages > 0 ? totalPages : chapterTotalPages;
+
   if (!book) {
     return (
       <div className="reader-page" style={{ justifyContent: 'center', alignItems: 'center' }}>
@@ -910,11 +929,9 @@ export default function Reader() {
           <ChevronLeftIcon />
         </button>
         <span className="progress-text">
-          {generatingPages && totalPages === 0 ? '…' : `${currentPage} / ${totalPages}`}
+          {displayTotal > 0 ? `${displayPage} / ${displayTotal}` : (generatingPages ? '…' : '')}
         </span>
-        {totalPages > 0 && (
-          <span className="progress-percent">{progressPercent}%</span>
-        )}
+        <span className="progress-percent">{progressPercent}%</span>
         <button className="nav-btn" onClick={goNext}>
           <ChevronRightIcon />
         </button>
@@ -927,9 +944,9 @@ export default function Reader() {
       </div>
 
       {/* 纯阅读模式右下角页码 */}
-      {!showToolbar && !loading && totalPages > 0 && (
+      {!showToolbar && !loading && displayTotal > 0 && (
         <div className="reading-page-indicator">
-          {generatingPages ? '…' : `${currentPage} / ${totalPages}`}
+          {displayPage} / {displayTotal}
         </div>
       )}
 

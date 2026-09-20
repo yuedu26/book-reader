@@ -261,8 +261,8 @@ a { color: var(--primary); text-decoration: none; }
 
 .reader-viewer {
   position: absolute;
-  top: 60px;
-  bottom: 60px;
+  top: 0;
+  bottom: 0;
   left: 0;
   right: 0;
   width: 100%;
