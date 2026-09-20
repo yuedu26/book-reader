@@ -42,6 +42,7 @@ export interface Bookmark {
   cfi: string;
   label?: string;
   chapterTitle?: string;
+  firstLine?: string; // 书签当页第一句话
   createdAt: number;
 }
 

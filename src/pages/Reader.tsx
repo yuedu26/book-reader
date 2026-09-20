@@ -57,6 +57,10 @@ export default function Reader() {
   const [currentChapterTitle, setCurrentChapterTitle] = useState('');
   const [currentSpineIndex, setCurrentSpineIndex] = useState(0);
   const [totalSpineItems, setTotalSpineItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(0); // 全书屏幕页码总数
+  const [currentPage, setCurrentPage] = useState(0); // 当前屏幕页码（1-based）
+  const [progressPercent, setProgressPercent] = useState(0); // 进度百分比 0-100
+  const [generatingPages, setGeneratingPages] = useState(false);
   const [selectionPopup, setSelectionPopup] = useState<{
     y: number; text: string; cfiRange: string; isSingleWord: boolean;
   } | null>(null);
@@ -68,6 +72,7 @@ export default function Reader() {
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const prevPageModeRef = useRef(settings.pageMode);
   const pageTurnLockRef = useRef(0);
+  const generatePagesRef = useRef<(() => void) | null>(null);
 
   // Initialize epub
   useEffect(() => {
@@ -176,6 +181,20 @@ export default function Reader() {
           const href = location.start?.href;
           
           if (cfi && bookId) {
+            // 计算当前页码与百分比（locations 已生成时）
+            try {
+              const locations = rendition.locations;
+              if (locations && locations.length() > 0) {
+                const page = locations.locationFromCfi(cfi);
+                if (page >= 0) {
+                  setCurrentPage(page + 1);
+                  setProgressPercent(Math.round((locations.percentageFromCfi(cfi) || 0) * 100));
+                }
+              }
+            } catch (e) {
+              // 忽略页码计算错误
+            }
+
             // 防抖保存位置
             if (locationSaveTimerRef.current) clearTimeout(locationSaveTimerRef.current);
             locationSaveTimerRef.current = setTimeout(() => {
@@ -411,6 +430,34 @@ export default function Reader() {
               console.warn('[Reader] Resize failed:', e);
             }
           }, 200);
+
+          // 定义页码生成函数（供字体调整时复用）
+          const generateLocations = () => {
+            if (destroyed) return;
+            const r = rendition;
+            if (!r) return;
+            setGeneratingPages(true);
+            r.locations.generate(1200).then(() => {
+              if (destroyed) return;
+              const total = r.locations.length();
+              setTotalPages(total);
+              const cfi = r.currentLocation?.()?.start?.cfi;
+              if (cfi) {
+                const page = r.locations.locationFromCfi(cfi);
+                if (page >= 0) {
+                  setCurrentPage(page + 1);
+                  setProgressPercent(Math.round((r.locations.percentageFromCfi(cfi) || 0) * 100));
+                }
+              }
+              setGeneratingPages(false);
+            }).catch(() => {
+              if (!destroyed) setGeneratingPages(false);
+            });
+          };
+          generatePagesRef.current = generateLocations;
+
+          // 延迟生成全书页码（等 resize 完成后）
+          setTimeout(() => generateLocations(), 600);
         } catch (displayErr) {
           console.error('[Reader] Display failed:', displayErr);
           // 尝试从第一页开始
@@ -549,6 +596,10 @@ export default function Reader() {
         } catch (e) {
           console.warn('[Reader] Re-paginate after theme change failed:', e);
         }
+        // 字号变化后重新生成页码
+        setTimeout(() => {
+          generatePagesRef.current?.();
+        }, 300);
       }, 150);
     }
   }, [settings, applyTheme]);
@@ -576,6 +627,28 @@ export default function Reader() {
     setTocOpen(false);
   };
 
+  // 提取当前页第一句话（用于书签）
+  const extractFirstLine = (): string => {
+    try {
+      const contents = renditionRef.current?.getContents?.();
+      const doc = contents?.[0]?.document;
+      if (!doc?.body) return '';
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        const text = node.textContent?.trim();
+        if (text && text.length > 1) {
+          const match = text.match(/[^.!?。！？\n]*[.!?。！？]?/);
+          const firstLine = (match ? match[0] : text).trim();
+          return firstLine.length > 30 ? firstLine.slice(0, 30) + '…' : firstLine;
+        }
+      }
+      return '';
+    } catch {
+      return '';
+    }
+  };
+
   // Toggle bookmark
   const toggleBookmark = () => {
     if (!book || !book.currentLocation) return;
@@ -583,25 +656,22 @@ export default function Reader() {
     if (existing) {
       removeBookmark(existing.id);
     } else {
-      // 如果 currentChapterTitle 为空，用 chapterHref 提取文件名作为降级
+      // 章节名：优先 TOC 匹配结果，失败用文件名降级
       let chapterName = currentChapterTitle;
       if (!chapterName && book.currentChapterHref) {
         const match = book.currentChapterHref.match(/([^/]+?)(?:\.xhtml|\.html|\.htm)?(?:#.*)?$/i);
         chapterName = match ? match[1].replace(/_split_\d+$/, '') : '';
       }
-      
-      console.log('[Reader] Adding bookmark:', { 
-        chapterTitle: chapterName, 
-        chapterHref: book.currentChapterHref,
-        currentChapterTitle 
-      });
-      
+
+      const firstLine = extractFirstLine();
+
       addBookmark({
         id: generateId(),
         bookId: book.id,
         chapterHref: book.currentChapterHref,
         cfi: book.currentLocation,
         chapterTitle: chapterName,
+        firstLine,
         createdAt: Date.now(),
       });
     }
@@ -840,8 +910,11 @@ export default function Reader() {
           <ChevronLeftIcon />
         </button>
         <span className="progress-text">
-          {currentSpineIndex + 1} / {totalSpineItems}
+          {generatingPages && totalPages === 0 ? '…' : `${currentPage} / ${totalPages}`}
         </span>
+        {totalPages > 0 && (
+          <span className="progress-percent">{progressPercent}%</span>
+        )}
         <button className="nav-btn" onClick={goNext}>
           <ChevronRightIcon />
         </button>
@@ -852,6 +925,13 @@ export default function Reader() {
           }
         </button>
       </div>
+
+      {/* 纯阅读模式右下角页码 */}
+      {!showToolbar && !loading && totalPages > 0 && (
+        <div className="reading-page-indicator">
+          {generatingPages ? '…' : `${currentPage} / ${totalPages}`}
+        </div>
+      )}
 
       {/* Selection popup */}
       {selectionPopup && (

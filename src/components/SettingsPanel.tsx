@@ -32,7 +32,13 @@ export default function SettingsPanel({ open, onClose }: Props) {
           <div className="settings-section">
             <div className="settings-label">字体大小</div>
             <div className="settings-row">
-              <span style={{ fontSize: 12 }}>A</span>
+              <button
+                className="font-step-btn"
+                onClick={() => updateSettings({ fontSize: Math.max(12, settings.fontSize - 1) })}
+                title="减小字号"
+              >
+                <span style={{ fontSize: 13 }}>A</span>−
+              </button>
               <input
                 type="range"
                 className="settings-slider"
@@ -42,7 +48,13 @@ export default function SettingsPanel({ open, onClose }: Props) {
                 value={settings.fontSize}
                 onChange={e => updateSettings({ fontSize: Number(e.target.value) })}
               />
-              <span style={{ fontSize: 20 }}>A</span>
+              <button
+                className="font-step-btn"
+                onClick={() => updateSettings({ fontSize: Math.min(28, settings.fontSize + 1) })}
+                title="增大字号"
+              >
+                <span style={{ fontSize: 20 }}>A</span>＋
+              </button>
               <span className="settings-value">{settings.fontSize}</span>
             </div>
           </div>

@@ -63,6 +63,7 @@ export default function TOCPanel({
               <div key={bm.id} className="bookmark-item">
                 <div className="bookmark-info" onClick={() => onNavigateBookmark(bm.cfi)}>
                   <div className="bookmark-chapter">{bm.chapterTitle || '未知章节'}</div>
+                  {bm.firstLine && <div className="bookmark-firstline">“{bm.firstLine}”</div>}
                   <div className="bookmark-date">{formatRelativeTime(bm.createdAt)}</div>
                 </div>
                 <button className="bookmark-delete" onClick={() => onDeleteBookmark(bm.id)} title="删除">
