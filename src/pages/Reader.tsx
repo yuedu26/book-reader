@@ -137,9 +137,9 @@ export default function Reader() {
         }
 
         console.log('[Reader] Creating rendition...');
-        // 用容器实际像素尺寸，避免 '100%' 在容器高度未确定时分页计算错误
-        const containerWidth = container.clientWidth || window.innerWidth;
-        const containerHeight = container.clientHeight || (window.innerHeight - 120);
+        // 用窗口尺寸作为基准（避免容器 clientWidth 在布局未完成时返回错误值导致分页每页内容过少）
+        const containerWidth = window.innerWidth;
+        const containerHeight = window.innerHeight - 120; // 上下工具栏各 60px
         console.log('[Reader] Rendition size:', containerWidth, 'x', containerHeight);
         
         const rendition = bookInstance.renderTo(container, {
@@ -391,6 +391,16 @@ export default function Reader() {
             await rendition.display();
           }
           console.log('[Reader] Display completed successfully');
+          
+          // 延迟重新分页，确保用正确的视口尺寸（解决"翻几页内容才变一下"的分页过细问题）
+          setTimeout(() => {
+            try {
+              rendition.resize(window.innerWidth, window.innerHeight - 120);
+              console.log('[Reader] Resized to', window.innerWidth, 'x', window.innerHeight - 120);
+            } catch (e) {
+              console.warn('[Reader] Resize failed:', e);
+            }
+          }, 200);
         } catch (displayErr) {
           console.error('[Reader] Display failed:', displayErr);
           // 尝试从第一页开始
