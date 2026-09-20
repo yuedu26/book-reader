@@ -161,22 +161,6 @@ export default function Reader() {
           }
         }
 
-        // 用 ResizeObserver 监听容器真实尺寸，尺寸确定后触发重新分页
-        // （解决分页过细/过粗的问题，因为初始 clientWidth/Height 可能不准确）
-        const resizeObserver = new ResizeObserver(() => {
-          try {
-            const w = container.clientWidth;
-            const h = container.clientHeight;
-            if (w > 0 && h > 0 && renditionRef.current) {
-              renditionRef.current.resize(w, h);
-            }
-          } catch (e) {
-            console.warn('[Reader] ResizeObserver handler error:', e);
-          }
-        });
-        resizeObserver.observe(container);
-        (container as any).__resizeObserver = resizeObserver;
-
         // 设置 spine 长度
         const spineLength = bookInstance.spine?.items?.length || 1;
         setTotalSpineItems(spineLength);
@@ -492,13 +476,6 @@ export default function Reader() {
       flushReadingTime();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
 
-      // 清理 ResizeObserver
-      const container = viewerRef.current;
-      const ro = (container as any)?.__resizeObserver;
-      if (ro) {
-        try { ro.disconnect(); } catch {}
-      }
-
       // 清理
       if (renditionRef.current) {
         try { renditionRef.current.destroy(); } catch {}
@@ -556,17 +533,14 @@ export default function Reader() {
   useEffect(() => {
     if (renditionRef.current) {
       applyTheme(renditionRef.current);
-      // 字号/主题改变后触发重新分页（否则每页内容变少但页数不刷新）
-      const container = viewerRef.current;
-      if (container && container.clientWidth > 0 && container.clientHeight > 0) {
-        setTimeout(() => {
-          try {
-            renditionRef.current?.resize(container.clientWidth, container.clientHeight);
-          } catch (e) {
-            console.warn('[Reader] Re-paginate after theme change failed:', e);
-          }
-        }, 150);
-      }
+      // 字号/主题改变后触发重新分页（用窗口尺寸，避免 clientHeight 在 iOS 上含地址栏导致偏大）
+      setTimeout(() => {
+        try {
+          renditionRef.current?.resize(window.innerWidth, window.innerHeight - 120);
+        } catch (e) {
+          console.warn('[Reader] Re-paginate after theme change failed:', e);
+        }
+      }, 150);
     }
   }, [settings, applyTheme]);
 
