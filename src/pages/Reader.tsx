@@ -262,13 +262,13 @@ export default function Reader() {
           const isTouchDevice = 'ontouchstart' in window;
 
           const handleTap = (x: number) => {
-            // 用主窗口宽度判断（稳定，不受 iframe 翻页后宽度变化影响）
+            // 用主窗口宽度判断；中间区域放宽到 25%~75%，更容易命中「显示/隐藏工具栏」
             const width = window.innerWidth || 0;
             if (!width) return;
             setSelectionPopup(null);
-            if (x < width * 0.3) {
+            if (x < width * 0.25) {
               rendition.prev();
-            } else if (x > width * 0.7) {
+            } else if (x > width * 0.75) {
               rendition.next();
             } else {
               setShowToolbar(prev => !prev);
