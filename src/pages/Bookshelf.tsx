@@ -44,21 +44,25 @@ async function parseEpubMetadata(buffer: ArrayBuffer): Promise<{
   cover: string | undefined;
   totalChapters: number;
 }> {
-  console.log('[EPUB] Starting parse...');
+  console.log('[EPUB] Starting parse, buffer size:', buffer.byteLength);
+  if (buffer.byteLength === 0) {
+    throw new Error('文件内容为空');
+  }
+  
   const ePub = (await import('epubjs')).default;
   const book = ePub(buffer);
   
   console.log('[EPUB] Waiting for ready...');
   await Promise.race([
     book.ready,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('EPUB ready timeout')), 10000)),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('EPUB 解析超时（30 秒）')), 30000)),
   ]);
   console.log('[EPUB] Ready');
 
   console.log('[EPUB] Loading metadata...');
   const metadata = await Promise.race([
     book.loaded.metadata,
-    new Promise((resolve) => setTimeout(() => resolve({ title: '', creator: '' }), 5000)),
+    new Promise((resolve) => setTimeout(() => resolve({ title: '', creator: '' }), 8000)),
   ]);
   console.log('[EPUB] Metadata:', metadata?.title, metadata?.creator);
 
@@ -191,17 +195,10 @@ export default function Bookshelf() {
       console.log('[Import] Done!');
     } catch (err) {
       console.error('[Import] Failed:', err);
-      const errorMsg = err instanceof Error ? err.message : '未知错误';
+      const errorMsg = err instanceof Error ? err.message : String(err);
       
-      // 如果是 standalone 模式，给出更详细的提示
-      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
-                           (window.navigator as any).standalone === true;
-      
-      if (isStandalone && errorMsg.includes('IndexedDB')) {
-        alert(`导入失败：${errorMsg}\n\n这是 standalone 模式的已知问题。请尝试：\n1. 在 Safari 中打开 https://yuedu26.github.io/book-reader/\n2. 导入书籍\n3. 然后再添加到主屏幕`);
-      } else {
-        alert(`导入失败：${errorMsg}\n\n请确认文件是有效的 EPUB 格式`);
-      }
+      // 显示具体的错误信息，方便排查
+      alert(`导入失败：${errorMsg}`);
     } finally {
       setImporting(false);
     }
