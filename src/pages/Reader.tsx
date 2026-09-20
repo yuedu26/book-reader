@@ -262,8 +262,8 @@ export default function Reader() {
           const isTouchDevice = 'ontouchstart' in window;
 
           const handleTap = (x: number) => {
-            // 用主窗口宽度判断；中间区域放宽到 25%~75%，更容易命中「显示/隐藏工具栏」
-            const width = window.innerWidth || 0;
+            // 用 iframe 视口宽判断（touch.clientX 是相对 iframe 视口的，必须用 iframe 宽而非主窗口宽）
+            const width = win?.innerWidth || window.innerWidth || 0;
             if (!width) return;
             setSelectionPopup(null);
             if (x < width * 0.25) {
