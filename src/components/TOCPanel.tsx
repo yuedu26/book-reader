@@ -12,11 +12,13 @@ interface Props {
   bookmarks: Bookmark[];
   onNavigateBookmark: (cfi: string) => void;
   onDeleteBookmark: (id: string) => void;
+  tocPageMap?: Record<string, number>;
 }
 
 export default function TOCPanel({
   open, onClose, toc, currentHref, onNavigate,
   bookmarks, onNavigateBookmark, onDeleteBookmark,
+  tocPageMap,
 }: Props) {
   const [tab, setTab] = useState<'toc' | 'bookmarks'>('toc');
 
@@ -28,7 +30,10 @@ export default function TOCPanel({
         }`}
         onClick={() => onNavigate(item.href)}
       >
-        {item.label}
+        <span className="toc-item-label">{item.label}</span>
+        {tocPageMap?.[item.href] ? (
+          <span className="toc-item-page">{tocPageMap[item.href]}</span>
+        ) : null}
       </button>
       {item.subitems?.map(sub => renderItem(sub, level + 1))}
     </React.Fragment>

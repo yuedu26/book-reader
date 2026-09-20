@@ -63,6 +63,7 @@ export default function Reader() {
   const [generatingPages, setGeneratingPages] = useState(false);
   const [chapterPage, setChapterPage] = useState(0); // 当前章节内页码
   const [chapterTotalPages, setChapterTotalPages] = useState(0); // 当前章节总页数
+  const [tocPageMap, setTocPageMap] = useState<Record<string, number>>({}); // 目录项 href -> 起始页码
   const [selectionPopup, setSelectionPopup] = useState<{
     y: number; text: string; cfiRange: string; isSingleWord: boolean;
   } | null>(null);
@@ -225,6 +226,9 @@ export default function Reader() {
 
           // 更新章节标题
           if (href) {
+            const safeDecode = (s: string) => {
+              try { return decodeURIComponent(s); } catch { return s; }
+            };
             const findTitle = (items: Chapter[]): string => {
               for (const item of items) {
                 // 规范化：去锚点/查询/路径/扩展名，但保留 _split 后缀以区分各章节
@@ -236,10 +240,9 @@ export default function Reader() {
                 };
                 const itemHrefNorm = normalizeHref(item.href);
                 const hrefNorm = normalizeHref(href);
-                // 精确匹配（考虑 URL 编码的空格）
+                // 精确匹配（考虑 URL 编码）
                 const matches = itemHrefNorm === hrefNorm ||
-                  decodeURIComponent(itemHrefNorm) === hrefNorm ||
-                  itemHrefNorm === decodeURIComponent(hrefNorm);
+                  safeDecode(itemHrefNorm) === safeDecode(hrefNorm);
                 if (matches) {
                   return item.label;
                 }
@@ -250,16 +253,32 @@ export default function Reader() {
               }
               return '';
             };
-            const title = findTitle(tocItems);
-            
-            // 如果 TOC 匹配失败，用文件名作为章节名
+            let title = findTitle(tocItems);
+
+            // fallback：用 spine 索引匹配展平后的 TOC（章节顺序通常与 spine 一致）
+            if (!title) {
+              const flatten = (items: Chapter[]): Chapter[] => {
+                const out: Chapter[] = [];
+                for (const it of items) {
+                  out.push(it);
+                  if (it.subitems) out.push(...flatten(it.subitems));
+                }
+                return out;
+              };
+              const flatToc = flatten(tocItems);
+              const idx = location.start?.index;
+              if (idx !== undefined && flatToc[idx]) {
+                title = flatToc[idx].label;
+              }
+            }
+
+            // 如果仍失败，用文件名作为章节名
             let chapterName = title;
             if (!chapterName) {
               const match = href.match(/([^/]+?)(?:\.xhtml|\.html|\.htm)?(?:#.*)?$/i);
               chapterName = match ? match[1].replace(/_split_\d+$/, '') : '';
             }
-            
-            console.log('[Reader] Chapter title:', chapterName, 'for href:', href, 'TOC items:', tocItems.length);
+
             setCurrentChapterTitle(chapterName || '');
           }
         });
@@ -450,6 +469,27 @@ export default function Reader() {
                   setProgressPercent(Math.round((r.locations.percentageFromCfi(cfi) || 0) * 100));
                 }
               }
+              // 为目录项计算起始页码
+              try {
+                const map: Record<string, number> = {};
+                const spine = bookInstance.spine?.items || [];
+                const walk = (items: Chapter[]) => {
+                  for (const item of items) {
+                    const section = spine.find((s: any) =>
+                      s.href === item.href || item.href.includes(s.href) || s.href.includes(item.href)
+                    );
+                    if (section?.cfiBase) {
+                      const p = r.locations.locationFromCfi(section.cfiBase);
+                      if (p >= 0) map[item.href] = p + 1;
+                    }
+                    if (item.subitems) walk(item.subitems);
+                  }
+                };
+                walk(tocItems);
+                setTocPageMap(map);
+              } catch (e) {
+                console.warn('[Reader] Compute TOC pages failed:', e);
+              }
               setGeneratingPages(false);
             }).catch((e: any) => {
               clearTimeout(timer);
@@ -559,7 +599,7 @@ export default function Reader() {
         'font-family': fontStack + ' !important',
         'font-size': `${settings.fontSize}px !important`,
         'line-height': `${settings.lineHeight} !important`,
-        'padding': 'calc(12px + env(safe-area-inset-top, 0px)) 20px 20px 20px !important',
+        'padding': 'calc(24px + env(safe-area-inset-top, 0px)) 20px 34px 20px !important',
         'margin': '0 !important',
       },
       // 所有元素继承 body 的字号/行高/字体，确保字号调节真正生效
@@ -633,32 +673,24 @@ export default function Reader() {
   // 提取当前页第一句话（用于书签）
   const extractFirstLine = (): string => {
     try {
-      const contents = renditionRef.current?.getContents?.();
-      const doc = contents?.[0]?.document;
-      if (!doc?.body) return '';
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
-      let node: Node | null;
-      // 遍历文本节点，找「当前可视页」内的第一个非空文本（而不是整个章节的第一个字）
-      while ((node = walker.nextNode())) {
-        const text = node.textContent?.trim();
-        if (!text || text.length < 2) continue;
-        try {
-          const range = doc.createRange();
-          range.selectNodeContents(node);
-          const rect = range.getBoundingClientRect();
-          // 屏幕坐标在可视页范围内（container 左边缘为 0）
-          if (rect.left >= -10 && rect.left < viewportWidth && rect.top >= -10 && rect.top < viewportHeight) {
-            const match = text.match(/[^.!?。！？\n]*[.!?。！？]?/);
-            const firstLine = (match ? match[0] : text).trim();
-            return firstLine.length > 30 ? firstLine.slice(0, 30) + '…' : firstLine;
-          }
-        } catch {
-          // 忽略单节点判断失败
-        }
+      const rendition = renditionRef.current;
+      const loc = rendition?.currentLocation?.();
+      const cfi = loc?.start?.cfi;
+      if (!cfi) return '';
+      const range = rendition.getRange(cfi);
+      if (!range) return '';
+      // 从 range 的 startContainer 向上找到段落元素
+      let node: Node | null = range.startContainer;
+      while (node && node.nodeType !== 1) node = node.parentNode;
+      while (node && !['P', 'DIV', 'SECTION', 'BODY'].includes((node as Element).tagName)) {
+        node = node.parentNode;
       }
-      return '';
+      const text = (node as Element)?.textContent?.trim() || '';
+      if (!text) return '';
+      // 取第一句
+      const match = text.match(/[^.!?。！？\n]*[.!?。！？]?/);
+      const firstLine = (match ? match[0] : text).trim();
+      return firstLine.length > 30 ? firstLine.slice(0, 30) + '…' : firstLine;
     } catch {
       return '';
     }
@@ -864,9 +896,9 @@ export default function Reader() {
     exportHighlightsAsText(highlights, [book], notesOnly);
   };
 
-  // 页码显示：优先全书页码（generate 成功），失败 fallback 章节内页码
-  const displayPage = totalPages > 0 ? currentPage : chapterPage;
-  const displayTotal = totalPages > 0 ? totalPages : chapterTotalPages;
+  // 工具栏页码：全书页码（generate 成功），失败 fallback 章节内页码
+  const toolbarPage = totalPages > 0 ? currentPage : chapterPage;
+  const toolbarTotal = totalPages > 0 ? totalPages : chapterTotalPages;
 
   if (!book) {
     return (
@@ -929,7 +961,7 @@ export default function Reader() {
           <ChevronLeftIcon />
         </button>
         <span className="progress-text">
-          {displayTotal > 0 ? `${displayPage} / ${displayTotal}` : (generatingPages ? '…' : '')}
+          {toolbarTotal > 0 ? `${toolbarPage} / ${toolbarTotal}` : (generatingPages ? '…' : '')}
         </span>
         <span className="progress-percent">{progressPercent}%</span>
         <button className="nav-btn" onClick={goNext}>
@@ -943,10 +975,10 @@ export default function Reader() {
         </button>
       </div>
 
-      {/* 纯阅读模式右下角页码 */}
-      {!showToolbar && !loading && displayTotal > 0 && (
+      {/* 纯阅读模式右下角页码（章节内页码） */}
+      {!showToolbar && !loading && chapterTotalPages > 0 && (
         <div className="reading-page-indicator">
-          {displayPage} / {displayTotal}
+          {chapterPage} / {chapterTotalPages}
         </div>
       )}
 
@@ -994,6 +1026,7 @@ export default function Reader() {
           setTocOpen(false);
         }}
         onDeleteBookmark={removeBookmark}
+        tocPageMap={tocPageMap}
       />
 
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
