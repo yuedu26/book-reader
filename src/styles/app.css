@@ -260,14 +260,15 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .reader-viewer {
-  flex: 1;
-  position: relative;
+  position: absolute;
+  top: 60px;
+  bottom: 60px;
+  left: 0;
+  right: 0;
   width: 100%;
   background: #fff;
   overflow: hidden;
   z-index: 1;
-  margin-top: 60px;
-  margin-bottom: 60px;
 }
 
 .reader-viewer > div,

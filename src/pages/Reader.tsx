@@ -118,7 +118,7 @@ export default function Reader() {
         try {
           const nav = await Promise.race([
             bookInstance.loaded.navigation,
-            new Promise<any>((resolve) => setTimeout(() => resolve({ toc: [] }), 3000)),
+            new Promise<any>((resolve) => setTimeout(() => resolve({ toc: [] }), 8000)),
           ]);
           const flattenToc = (items: any[]): Chapter[] => {
             if (!items) return [];
@@ -132,14 +132,22 @@ export default function Reader() {
           tocItems = flattenToc(nav?.toc || []);
           setToc(tocItems);
           console.log('[Reader] TOC loaded:', tocItems.length, 'items');
+          if (tocItems.length > 0) {
+            console.log('[Reader] First TOC item:', JSON.stringify(tocItems[0]));
+          }
         } catch (err) {
           console.warn('[Reader] Failed to load TOC:', err);
         }
 
         console.log('[Reader] Creating rendition...');
+        // 用容器实际像素尺寸，避免 '100%' 在容器高度未确定时分页计算错误
+        const containerWidth = container.clientWidth || window.innerWidth;
+        const containerHeight = container.clientHeight || (window.innerHeight - 120);
+        console.log('[Reader] Rendition size:', containerWidth, 'x', containerHeight);
+        
         const rendition = bookInstance.renderTo(container, {
-          width: '100%',
-          height: '100%',
+          width: containerWidth,
+          height: containerHeight,
           flow: settings.pageMode === 'scrolled' ? 'scrolled' : 'paginated',
           spread: 'none',
           allowScriptedContent: true,
@@ -182,21 +190,37 @@ export default function Reader() {
 
           // 更新章节标题
           if (href) {
+            // 打印 location 结构用于调试
+            console.log('[Reader] Location:', JSON.stringify(location.start).substring(0, 300));
+            
             const findTitle = (items: Chapter[]): string => {
               for (const item of items) {
-                // 宽松匹配：去掉路径前缀、扩展名、锚点、下划线后缀后比较
-                const normalizeHref = (h: string) => 
-                  h.replace(/#.*$/, '')           // 去掉锚点
-                   .replace(/.*\//, '')           // 去掉路径前缀
-                   .replace(/\.(xhtml|html|htm)$/i, '')  // 去掉扩展名
-                   .replace(/_split_\d+$/, '');   // 去掉 _split_002 后缀
+                // 极宽松匹配：去掉所有非字母数字字符后比较，并取末尾文件名部分
+                const normalizeHref = (h: string) => {
+                  let s = h;
+                  // 去掉锚点
+                  s = s.split('#')[0];
+                  // 去掉查询参数
+                  s = s.split('?')[0];
+                  // 取文件名（去掉路径）
+                  s = s.split('/').pop() || s;
+                  // 去掉扩展名
+                  s = s.replace(/\.(xhtml|html|htm)$/i, '');
+                  // 去掉 _split_XXX 后缀
+                  s = s.replace(/_split_\d+$/i, '');
+                  // 去掉空格和特殊字符
+                  s = s.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '').toLowerCase();
+                  return s;
+                };
                 
                 const itemHrefNorm = normalizeHref(item.href);
                 const hrefNorm = normalizeHref(href);
                 
-                console.log('[Reader] TOC match:', { itemHrefNorm, hrefNorm, itemLabel: item.label });
-                
-                if (itemHrefNorm === hrefNorm || item.href === href || href.includes(item.href) || item.href.includes(href)) {
+                if (itemHrefNorm && hrefNorm && (itemHrefNorm === hrefNorm || hrefNorm.includes(itemHrefNorm) || itemHrefNorm.includes(hrefNorm))) {
+                  return item.label;
+                }
+                // 也尝试原始匹配
+                if (item.href === href || href.includes(item.href) || item.href.includes(href)) {
                   return item.label;
                 }
                 if (item.subitems) {
@@ -208,12 +232,11 @@ export default function Reader() {
             };
             const title = findTitle(tocItems);
             
-            // 如果 TOC 匹配失败，用文件名作为章节名（去掉路径、扩展名、_split_后缀）
+            // 如果 TOC 匹配失败，用文件名作为章节名
             let chapterName = title;
             if (!chapterName) {
               const match = href.match(/([^/]+?)(?:\.xhtml|\.html|\.htm)?(?:#.*)?$/i);
               chapterName = match ? match[1].replace(/_split_\d+$/, '') : '';
-              console.log('[Reader] TOC match failed, using filename:', chapterName);
             }
             
             console.log('[Reader] Chapter title:', chapterName, 'for href:', href, 'TOC items:', tocItems.length);
