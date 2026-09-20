@@ -254,6 +254,13 @@ export default function Reader() {
         // 绑定翻页与文本选择事件（用 rendered 事件，直接获取 view 的 document）
         const boundDocs = new WeakSet<any>();
 
+        // 记录 epub.js 内部横向滚动偏移（分页翻页通过 stage.scrollLeft 实现）
+        // scroll 事件不冒泡，用 capture 从祖先容器捕获
+        let pageScrollLeft = 0;
+        container.addEventListener('scroll', (ev) => {
+          pageScrollLeft = (ev.target as HTMLElement)?.scrollLeft || 0;
+        }, { capture: true, passive: true });
+
         const bindPageEvents = (doc: any, contents: any) => {
           if (!doc || boundDocs.has(doc)) return;
           boundDocs.add(doc);
@@ -262,18 +269,9 @@ export default function Reader() {
           const isTouchDevice = 'ontouchstart' in window;
 
           const handleTap = (clientX: number) => {
-            // 关键修复：epub.js 分页用 container.scrollLeft 横向滚动，touch.clientX 是相对 iframe viewport 的，
-            // 且 iframe 元素宽 = 多列总宽，导致 clientX 随翻页偏移。用 iframe 的 getBoundingClientRect().left
-            // 修正回「相对屏幕」的坐标，再用窗口宽判断区域。
-            let screenX = clientX;
-            try {
-              const iframe = win?.frameElement;
-              if (iframe) {
-                screenX = clientX + iframe.getBoundingClientRect().left;
-              }
-            } catch {
-              // 忽略，保持原 clientX
-            }
+            // 关键修复：touch.clientX 相对 iframe viewport（iframe 宽 = 多列总宽），
+            // 翻页后 stage.scrollLeft 变化导致 clientX 偏移。减去 scrollLeft 得到相对当前屏的坐标。
+            const screenX = clientX - pageScrollLeft;
             const width = window.innerWidth;
             if (!width) return;
             setSelectionPopup(null);
