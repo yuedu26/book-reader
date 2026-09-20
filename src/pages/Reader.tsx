@@ -261,14 +261,25 @@ export default function Reader() {
           const win = doc.defaultView || doc.ownerDocument?.defaultView;
           const isTouchDevice = 'ontouchstart' in window;
 
-          const handleTap = (x: number) => {
-            // 用 iframe 视口宽判断（touch.clientX 是相对 iframe 视口的，必须用 iframe 宽而非主窗口宽）
-            const width = win?.innerWidth || window.innerWidth || 0;
+          const handleTap = (clientX: number) => {
+            // 关键修复：epub.js 分页用 container.scrollLeft 横向滚动，touch.clientX 是相对 iframe viewport 的，
+            // 且 iframe 元素宽 = 多列总宽，导致 clientX 随翻页偏移。用 iframe 的 getBoundingClientRect().left
+            // 修正回「相对屏幕」的坐标，再用窗口宽判断区域。
+            let screenX = clientX;
+            try {
+              const iframe = win?.frameElement;
+              if (iframe) {
+                screenX = clientX + iframe.getBoundingClientRect().left;
+              }
+            } catch {
+              // 忽略，保持原 clientX
+            }
+            const width = window.innerWidth;
             if (!width) return;
             setSelectionPopup(null);
-            if (x < width * 0.25) {
+            if (screenX < width * 0.25) {
               rendition.prev();
-            } else if (x > width * 0.75) {
+            } else if (screenX > width * 0.75) {
               rendition.next();
             } else {
               setShowToolbar(prev => !prev);
