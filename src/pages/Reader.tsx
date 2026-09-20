@@ -151,6 +151,16 @@ export default function Reader() {
         });
         renditionRef.current = rendition;
 
+        // 强制分页单页模式（避免书的 metadata 覆盖 spread/flow 导致分页异常）
+        if (settings.pageMode !== 'scrolled') {
+          try {
+            rendition.flow('paginated');
+            rendition.spread('none');
+          } catch (e) {
+            console.warn('[Reader] Failed to force paginated mode:', e);
+          }
+        }
+
         // 设置 spine 长度
         const spineLength = bookInstance.spine?.items?.length || 1;
         setTotalSpineItems(spineLength);
@@ -239,81 +249,81 @@ export default function Reader() {
             console.log('[Reader] Chapter title:', chapterName, 'for href:', href, 'TOC items:', tocItems.length);
             setCurrentChapterTitle(chapterName || '');
           }
+        });
 
-          // 翻页后重新绑定点击事件（因为 iframe 的 document 会变化）
-          setTimeout(() => {
-            try {
-              const contents = rendition.getContents?.() ?? [];
-              contents.forEach((c: any) => {
-                const doc = c?.document;
-                if (!doc) return;
-                if ((doc as any).__pageClickBound) return;
-                (doc as any).__pageClickBound = true;
+        // 绑定翻页与文本选择事件（用 rendered 事件，直接获取 view 的 document）
+        const boundDocs = new WeakSet<any>();
 
-                const win = doc.defaultView || doc.ownerDocument?.defaultView;
-                const isTouchDevice = 'ontouchstart' in window;
+        const bindPageEvents = (doc: any, contents: any) => {
+          if (!doc || boundDocs.has(doc)) return;
+          boundDocs.add(doc);
 
-                const handleTap = (x: number) => {
-                  // 用 iframe 视口宽度判断区域（documentElement.clientWidth 在分页列布局下可能是内容总宽）
-                  const width = win?.innerWidth || doc.documentElement?.clientWidth || 0;
-                  if (!width) return;
-                  setSelectionPopup(null);
-                  if (x < width * 0.3) {
-                    rendition.prev();
-                  } else if (x > width * 0.7) {
-                    rendition.next();
-                  } else {
-                    setShowToolbar(prev => !prev);
-                  }
-                };
+          const win = doc.defaultView || doc.ownerDocument?.defaultView;
+          const isTouchDevice = 'ontouchstart' in window;
 
-                if (isTouchDevice) {
-                  // 移动端：只用 touchend（避免 touchend + click 双触发导致来回翻）
-                  let touchStartX = 0;
-                  let touchStartY = 0;
-                  doc.addEventListener('touchstart', (ev: TouchEvent) => {
-                    const touch = ev.touches[0];
-                    touchStartX = touch.clientX;
-                    touchStartY = touch.clientY;
-                  }, { passive: true });
-
-                  doc.addEventListener('touchend', (ev: TouchEvent) => {
-                    const sel = win?.getSelection?.()?.toString?.();
-                    if (sel && sel.trim().length > 0) return;
-                    const touch = ev.changedTouches[0];
-                    const deltaX = Math.abs(touch.clientX - touchStartX);
-                    const deltaY = Math.abs(touch.clientY - touchStartY);
-                    if (deltaX < 10 && deltaY < 10) {
-                      handleTap(touch.clientX);
-                    }
-                  }, { passive: true });
-                } else {
-                  // 桌面端：只用 click
-                  doc.addEventListener('click', (ev: MouseEvent) => {
-                    const sel = win?.getSelection?.()?.toString?.();
-                    if (sel && sel.trim().length > 0) return;
-                    handleTap(ev.clientX);
-                  });
-                }
-
-                // iOS Safari 兼容：mouseup 事件检测文本选择
-                doc.addEventListener('mouseup', () => {
-                  const sel = win?.getSelection?.()?.toString?.();
-                  if (sel && sel.trim().length > 0) {
-                    setTimeout(() => {
-                      const range = win?.getSelection()?.getRangeAt(0);
-                      if (range) {
-                        const cfiRange = rendition.cfis?.fromRange(range);
-                        if (cfiRange) rendition.emit('selected', cfiRange, sel);
-                      }
-                    }, 100);
-                  }
-                });
-              });
-            } catch (e) {
-              console.warn('[Reader] Failed to bind page events:', e);
+          const handleTap = (x: number) => {
+            const width = win?.innerWidth || doc.documentElement?.clientWidth || 0;
+            if (!width) return;
+            setSelectionPopup(null);
+            if (x < width * 0.3) {
+              rendition.prev();
+            } else if (x > width * 0.7) {
+              rendition.next();
+            } else {
+              setShowToolbar(prev => !prev);
             }
-          }, 300);
+          };
+
+          if (isTouchDevice) {
+            let touchStartX = 0;
+            let touchStartY = 0;
+            doc.addEventListener('touchstart', (ev: TouchEvent) => {
+              const touch = ev.touches[0];
+              touchStartX = touch.clientX;
+              touchStartY = touch.clientY;
+            }, { passive: true });
+
+            doc.addEventListener('touchend', (ev: TouchEvent) => {
+              const sel = win?.getSelection?.()?.toString?.();
+              if (sel && sel.trim().length > 0) return;
+              const touch = ev.changedTouches[0];
+              const deltaX = Math.abs(touch.clientX - touchStartX);
+              const deltaY = Math.abs(touch.clientY - touchStartY);
+              if (deltaX < 10 && deltaY < 10) {
+                handleTap(touch.clientX);
+              }
+            }, { passive: true });
+          } else {
+            doc.addEventListener('click', (ev: MouseEvent) => {
+              const sel = win?.getSelection?.()?.toString?.();
+              if (sel && sel.trim().length > 0) return;
+              handleTap(ev.clientX);
+            });
+          }
+
+          // iOS Safari 兼容：mouseup 事件检测文本选择
+          doc.addEventListener('mouseup', () => {
+            const sel = win?.getSelection?.()?.toString?.();
+            if (sel && sel.trim().length > 0) {
+              setTimeout(() => {
+                const range = win?.getSelection()?.getRangeAt(0);
+                if (range) {
+                  const cfiRange = rendition.cfis?.fromRange(range);
+                  if (cfiRange) rendition.emit('selected', cfiRange, sel);
+                }
+              }, 100);
+            }
+          });
+        };
+
+        rendition.on('rendered', (section: any, view: any) => {
+          if (destroyed) return;
+          try {
+            const doc = view?.contents?.document;
+            if (doc) bindPageEvents(doc, view.contents);
+          } catch (e) {
+            console.warn('[Reader] Failed to bind page events:', e);
+          }
         });
 
         // 监听文本选择
