@@ -77,6 +77,8 @@ export default function Reader() {
   const pageTurnLockRef = useRef(0);
   const generatePagesRef = useRef<(() => void) | null>(null);
   const pageScrollLeftRef = useRef(0);
+  const pageCharCountsRef = useRef<number[]>([]); // 各章节字符数
+  const pageCharsPerPageRef = useRef(1500); // 每页字符数（随字号）
 
   // Initialize epub
   useEffect(() => {
@@ -191,14 +193,17 @@ export default function Reader() {
             if (dispPage) setChapterPage(dispPage);
             if (dispTotal) setChapterTotalPages(dispTotal);
 
-            // 计算全书页码与百分比（locations 已生成时）
+            // 计算全书页码（基于字符累计估算）与百分比
             try {
-              const locations = rendition.locations;
-              if (locations && locations.length() > 0) {
-                const page = locations.locationFromCfi(cfi);
-                if (page >= 0) {
-                  setCurrentPage(page + 1);
-                  setProgressPercent(Math.round((locations.percentageFromCfi(cfi) || 0) * 100));
+              const idx = location.start?.index;
+              const counts = pageCharCountsRef.current;
+              const cpp = pageCharsPerPageRef.current;
+              if (idx !== undefined && counts.length > 0) {
+                const cum = counts.slice(0, idx).reduce((a, b) => a + b, 0);
+                const totalChars = counts.reduce((a, b) => a + b, 0);
+                if (totalChars > 0) {
+                  setCurrentPage(Math.max(1, Math.floor(cum / cpp) + 1));
+                  setProgressPercent(Math.round((cum / totalChars) * 100));
                 }
               }
             } catch (e) {
@@ -445,60 +450,69 @@ export default function Reader() {
           }, 200);
 
           // 定义页码生成函数（供字体调整时复用）
+          // 用手动遍历 spine 统计字符数的方式估算全书页码，避免 locations.generate 超时卡死
           const generateLocations = () => {
             if (destroyed) return;
-            const r = rendition;
-            if (!r) return;
             setGeneratingPages(true);
-            console.log('[Reader] locations.generate start');
-            // 超时保护：generate 若卡住，30 秒后放弃，fallback 到章节内页码
-            const timer = setTimeout(() => {
-              console.warn('[Reader] locations.generate timeout');
-              alert('[页码] 全书页码生成超时，回退到章节页码');
-              if (!destroyed) setGeneratingPages(false);
-            }, 30000);
-            r.locations.generate(1200).then(() => {
-              clearTimeout(timer);
-              console.log('[Reader] locations.generate done, total:', r.locations.length());
-              if (destroyed) return;
-              const total = r.locations.length();
-              setTotalPages(total);
-              const cfi = r.currentLocation?.()?.start?.cfi;
-              if (cfi) {
-                const page = r.locations.locationFromCfi(cfi);
-                if (page >= 0) {
-                  setCurrentPage(page + 1);
-                  setProgressPercent(Math.round((r.locations.percentageFromCfi(cfi) || 0) * 100));
+            const doCompute = async () => {
+              const spine = bookInstance.spine?.items || [];
+              const charsPerPage = Math.max(500, Math.round(1500 * 16 / settings.fontSize));
+              pageCharsPerPageRef.current = charsPerPage;
+              const charCounts: number[] = [];
+              let totalChars = 0;
+              for (let i = 0; i < spine.length; i++) {
+                const section = spine[i];
+                if (!section.linear) { charCounts.push(0); continue; }
+                let text = '';
+                try {
+                  const doc = await Promise.race([
+                    bookInstance.load(section.href),
+                    new Promise<any>((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+                  ]);
+                  text = doc?.documentElement?.textContent || doc?.body?.textContent || (typeof doc === 'string' ? doc : '');
+                } catch (e) {
+                  text = '';
+                }
+                const len = text.length;
+                charCounts.push(len);
+                totalChars += len;
+                if (destroyed) return;
+              }
+              pageCharCountsRef.current = charCounts;
+              const total = Math.max(1, Math.ceil(totalChars / charsPerPage));
+
+              // 为目录项计算起始页码：累计到该章节之前的字符数
+              const map: Record<string, number> = {};
+              let cum = 0;
+              const cumByHref: Record<string, number> = {};
+              for (let i = 0; i < spine.length; i++) {
+                const section = spine[i];
+                if (section.linear) {
+                  cumByHref[section.href] = cum;
+                  cum += charCounts[i] || 0;
                 }
               }
-              // 为目录项计算起始页码
-              try {
-                const map: Record<string, number> = {};
-                const spine = bookInstance.spine?.items || [];
-                const walk = (items: Chapter[]) => {
-                  for (const item of items) {
-                    const section = spine.find((s: any) =>
-                      s.href === item.href || item.href.includes(s.href) || s.href.includes(item.href)
-                    );
-                    if (section?.cfiBase) {
-                      const p = r.locations.locationFromCfi(section.cfiBase);
-                      if (p >= 0) map[item.href] = p + 1;
-                    }
-                    if (item.subitems) walk(item.subitems);
+              const walkToc = (items: Chapter[]) => {
+                for (const item of items) {
+                  const section = spine.find((s: any) =>
+                    s.href === item.href || item.href.includes(s.href) || s.href.includes(item.href)
+                  );
+                  if (section && cumByHref[section.href] !== undefined) {
+                    map[item.href] = Math.floor(cumByHref[section.href] / charsPerPage) + 1;
                   }
-                };
-                walk(tocItems);
+                  if (item.subitems) walkToc(item.subitems);
+                }
+              };
+              walkToc(tocItems);
+
+              console.log('[Reader] computed total pages:', total, 'chars:', totalChars);
+              if (!destroyed) {
+                setTotalPages(total);
                 setTocPageMap(map);
-              } catch (e) {
-                console.warn('[Reader] Compute TOC pages failed:', e);
+                setGeneratingPages(false);
               }
-              setGeneratingPages(false);
-            }).catch((e: any) => {
-              clearTimeout(timer);
-              console.warn('[Reader] locations.generate failed:', e);
-              alert('[页码] 全书页码生成失败：' + (e?.message || String(e)));
-              if (!destroyed) setGeneratingPages(false);
-            });
+            };
+            doCompute();
           };
           generatePagesRef.current = generateLocations;
 
