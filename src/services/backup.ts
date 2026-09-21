@@ -155,16 +155,24 @@ function bookTitleOf(books: Book[], bookId: string): string {
 
 /**
  * 生成生词本文本（供导出与「复制全部」复用）
+ * includeExamples=false 只导出单词；true 导出单词+例句
  */
-export function buildVocabularyText(words: VocabularyWord[], books: Book[]): string {
-  let text = `生词本导出\n导出时间：${new Date().toLocaleString()}\n共 ${words.length} 个生词\n${'='.repeat(40)}\n\n`;
-  words.forEach((w, i) => {
-    text += `${i + 1}. ${w.word}\n`;
-    text += `   来源：${bookTitleOf(books, w.bookId)}${w.chapterTitle ? ' · ' + w.chapterTitle : ''}\n`;
-    if (w.context) text += `   上下文：${w.context}\n`;
-    if (w.definition) text += `   释义：${w.definition}\n`;
-    text += `   复习：${w.reviewCount} 次\n\n`;
-  });
+export function buildVocabularyText(words: VocabularyWord[], books: Book[], includeExamples: boolean = false): string {
+  const bookIds = Array.from(new Set(words.map(w => w.bookId)));
+  const bookName = bookIds.length === 1 ? bookTitleOf(books, bookIds[0]) : '生词本';
+  let text = `《${bookName}》生词\n导出时间：${new Date().toLocaleString()}\n${'='.repeat(40)}\n\n`;
+
+  if (includeExamples) {
+    words.forEach((w) => {
+      text += `${w.word}`;
+      if (w.context && w.context.trim()) text += `\n    ${w.context.trim()}`;
+      text += `\n\n`;
+    });
+  } else {
+    text += words.map(w => w.word).join('\n');
+    text += '\n';
+  }
+
   if (words.length === 0) text += `（暂无生词）\n`;
   return text;
 }
@@ -172,8 +180,9 @@ export function buildVocabularyText(words: VocabularyWord[], books: Book[]): str
 /**
  * 导出生词本为 TXT
  */
-export function exportVocabularyAsText(words: VocabularyWord[], books: Book[]): void {
-  downloadText(`生词本_${new Date().toISOString().slice(0, 10)}.txt`, buildVocabularyText(words, books));
+export function exportVocabularyAsText(words: VocabularyWord[], books: Book[], includeExamples: boolean = false): void {
+  const suffix = includeExamples ? '单词例句' : '单词';
+  downloadText(`生词本_${suffix}_${new Date().toISOString().slice(0, 10)}.txt`, buildVocabularyText(words, books, includeExamples));
 }
 
 /**

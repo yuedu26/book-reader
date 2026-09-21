@@ -285,6 +285,9 @@ export default function Bookshelf() {
                 ) : (
                   <div className="book-cover-placeholder">{book.title}</div>
                 )}
+                {(book.progress || 0) >= 0.99 && (
+                  <div className="book-finished-badge">已读完</div>
+                )}
                 <div className="book-progress-bar">
                   <div
                     className="book-progress-fill"

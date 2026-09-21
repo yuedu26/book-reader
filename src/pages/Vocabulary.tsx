@@ -40,7 +40,7 @@ export default function NotesPage() {
   };
 
   const handleCopyAll = async () => {
-    await copyTextToClipboard(buildVocabularyText(vocab, books));
+    await copyTextToClipboard(buildVocabularyText(vocab, books, false));
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -117,8 +117,9 @@ export default function NotesPage() {
       <div className="notes-actions">
         {tab === 'vocab' && (
           <>
-            <button className="notes-action-btn" onClick={handleCopyAll}>{copied ? '✓ 已复制' : '复制全部'}</button>
-            <button className="notes-action-btn" onClick={() => exportVocabularyAsText(vocab, books)}>导出 TXT</button>
+            <button className="notes-action-btn" onClick={handleCopyAll}>{copied ? '✓ 已复制' : '复制单词'}</button>
+            <button className="notes-action-btn" onClick={() => exportVocabularyAsText(vocab, books, false)}>导出单词</button>
+            <button className="notes-action-btn" onClick={() => exportVocabularyAsText(vocab, books, true)}>导出单词+例句</button>
           </>
         )}
         {tab === 'notes' && (

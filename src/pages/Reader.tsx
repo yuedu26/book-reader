@@ -616,7 +616,7 @@ export default function Reader() {
         'font-family': fontStack + ' !important',
         'font-size': `${settings.fontSize}px !important`,
         'line-height': `${settings.lineHeight} !important`,
-        'padding': 'calc(24px + env(safe-area-inset-top, 0px)) 20px 34px 20px !important',
+        'padding': 'calc(24px + env(safe-area-inset-top, 0px)) 28px 34px 28px !important',
         'margin': '0 !important',
       },
       // 所有元素继承 body 的字号/行高/字体，确保字号调节真正生效
@@ -683,7 +683,14 @@ export default function Reader() {
 
   // Navigate to TOC item
   const goToChapter = (href: string) => {
-    renditionRef.current?.display(href);
+    let target = href;
+    try { target = decodeURIComponent(href); } catch {}
+    // 用 spine 的 href 跳转（更可靠，因为 TOC href 可能格式不同）
+    const spine = bookRef.current?.spine?.items || [];
+    const section = spine.find((s: any) => s.href === target || target.includes(s.href) || s.href.includes(target));
+    if (section?.href) target = section.href;
+    console.log('[Reader] goToChapter:', href, '->', target);
+    renditionRef.current?.display(target);
     setTocOpen(false);
   };
 
