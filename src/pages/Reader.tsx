@@ -450,13 +450,16 @@ export default function Reader() {
             const r = rendition;
             if (!r) return;
             setGeneratingPages(true);
-            // 超时保护：generate 若卡住（某些 EPUB 章节加载失败），30 秒后放弃，fallback 到章节内页码
+            console.log('[Reader] locations.generate start');
+            // 超时保护：generate 若卡住，30 秒后放弃，fallback 到章节内页码
             const timer = setTimeout(() => {
               console.warn('[Reader] locations.generate timeout');
+              alert('[页码] 全书页码生成超时，回退到章节页码');
               if (!destroyed) setGeneratingPages(false);
             }, 30000);
             r.locations.generate(1200).then(() => {
               clearTimeout(timer);
+              console.log('[Reader] locations.generate done, total:', r.locations.length());
               if (destroyed) return;
               const total = r.locations.length();
               setTotalPages(total);
@@ -493,6 +496,7 @@ export default function Reader() {
             }).catch((e: any) => {
               clearTimeout(timer);
               console.warn('[Reader] locations.generate failed:', e);
+              alert('[页码] 全书页码生成失败：' + (e?.message || String(e)));
               if (!destroyed) setGeneratingPages(false);
             });
           };
