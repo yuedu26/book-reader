@@ -1155,19 +1155,20 @@ a { color: var(--primary); text-decoration: none; }
 /* ===== 字体步进按钮 ===== */
 .font-step-btn {
   display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
+  align-items: baseline;
+  gap: 1px;
+  padding: 0;
+  border: none;
   background: none;
-  color: var(--text);
-  font-size: 15px;
+  color: var(--text-secondary);
+  font-size: 16px;
+  font-weight: 500;
   cursor: pointer;
   flex-shrink: 0;
+  line-height: 1;
 }
 
-.font-step-btn:active { background: rgba(0, 0, 0, 0.05); }
+.font-step-btn:active { color: var(--primary); }
 
 /* ===== Scrollbar ===== */
 ::-webkit-scrollbar { width: 4px; }

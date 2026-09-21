@@ -229,21 +229,21 @@ export default function Reader() {
             const safeDecode = (s: string) => {
               try { return decodeURIComponent(s); } catch { return s; }
             };
+            // 用 spine 的 href 匹配（spine 和 TOC 都引用同一文件，最可靠）
+            const spineIndex = location.start?.index;
+            const spineHref = bookInstance.spine?.items?.[spineIndex]?.href || href;
+
             const findTitle = (items: Chapter[]): string => {
               for (const item of items) {
-                // 规范化：去锚点/查询/路径/扩展名，但保留 _split 后缀以区分各章节
-                const normalizeHref = (h: string) => {
-                  let s = h.split('#')[0].split('?')[0];
+                // 规范化：取文件名（去路径/锚点/查询），保留扩展名与 _split 后缀
+                const norm = (h: string) => {
+                  let s = (h || '').split('#')[0].split('?')[0];
                   s = s.split('/').pop() || s;
-                  s = s.replace(/\.(xhtml|html|htm)$/i, '');
                   return s.trim();
                 };
-                const itemHrefNorm = normalizeHref(item.href);
-                const hrefNorm = normalizeHref(href);
-                // 精确匹配（考虑 URL 编码）
-                const matches = itemHrefNorm === hrefNorm ||
-                  safeDecode(itemHrefNorm) === safeDecode(hrefNorm);
-                if (matches) {
+                const a = safeDecode(norm(item.href));
+                const b = safeDecode(norm(spineHref));
+                if (a && b && a === b) {
                   return item.label;
                 }
                 if (item.subitems) {
@@ -255,7 +255,7 @@ export default function Reader() {
             };
             let title = findTitle(tocItems);
 
-            // fallback：用 spine 索引匹配展平后的 TOC（章节顺序通常与 spine 一致）
+            // fallback：用 spine 索引匹配展平后的 TOC
             if (!title) {
               const flatten = (items: Chapter[]): Chapter[] => {
                 const out: Chapter[] = [];
@@ -266,9 +266,8 @@ export default function Reader() {
                 return out;
               };
               const flatToc = flatten(tocItems);
-              const idx = location.start?.index;
-              if (idx !== undefined && flatToc[idx]) {
-                title = flatToc[idx].label;
+              if (spineIndex !== undefined && flatToc[spineIndex]) {
+                title = flatToc[spineIndex].label;
               }
             }
 
