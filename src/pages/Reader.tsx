@@ -193,16 +193,17 @@ export default function Reader() {
             if (dispPage) setChapterPage(dispPage);
             if (dispTotal) setChapterTotalPages(dispTotal);
 
-            // 计算全书页码（基于字符累计估算）与百分比
+            // 计算全书页码与百分比（字符累计 + 章节内页）
             try {
               const idx = location.start?.index;
+              const dispPage = location.start?.displayed?.page || 1;
               const counts = pageCharCountsRef.current;
               const cpp = pageCharsPerPageRef.current;
               if (idx !== undefined && counts.length > 0) {
                 const cum = counts.slice(0, idx).reduce((a, b) => a + b, 0);
                 const totalChars = counts.reduce((a, b) => a + b, 0);
                 if (totalChars > 0) {
-                  setCurrentPage(Math.max(1, Math.floor(cum / cpp) + 1));
+                  setCurrentPage(Math.max(1, Math.floor(cum / cpp) + dispPage));
                   setProgressPercent(Math.round((cum / totalChars) * 100));
                 }
               }
