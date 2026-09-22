@@ -915,6 +915,21 @@ export default function Reader() {
     setNoteDialog(null);
   };
 
+  // 删除当前划线
+  const handleDeleteHighlight = () => {
+    if (!noteDialog) return;
+    const hl = useAppStore.getState().highlights.find(h => h.id === noteDialog.highlightId);
+    if (hl) {
+      removeHighlight(hl.id);
+      try {
+        renditionRef.current?.annotations.remove(hl.cfiRange, 'highlight');
+      } catch (e) {
+        console.warn('[Reader] Remove annotation failed:', e);
+      }
+    }
+    setNoteDialog(null);
+  };
+
   // 导出划线/想法为 TXT（notesOnly 只导带想法的条目）
   const handleExportNotes = (notesOnly: boolean) => {
     if (!book) return;
@@ -1034,6 +1049,13 @@ export default function Reader() {
               onSave={handleSaveNote}
               onCancel={() => setNoteDialog(null)}
             />
+            <button
+              className="btn btn-danger"
+              onClick={handleDeleteHighlight}
+              style={{ width: '100%', marginTop: 8 }}
+            >
+              删除划线
+            </button>
           </div>
         </div>
       )}
