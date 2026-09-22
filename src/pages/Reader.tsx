@@ -617,7 +617,7 @@ export default function Reader() {
         'font-family': fontStack + ' !important',
         'font-size': `${settings.fontSize}px !important`,
         'line-height': `${settings.lineHeight} !important`,
-        'padding': 'calc(24px + env(safe-area-inset-top, 0px)) 28px 34px 28px !important',
+        'padding': 'calc(24px + env(safe-area-inset-top, 0px)) 38px 34px 38px !important',
         'margin': '0 !important',
       },
       // 所有元素继承 body 的字号/行高/字体，确保字号调节真正生效
