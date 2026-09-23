@@ -685,6 +685,17 @@ export default function Reader() {
       },
     });
     rendition.themes.select('custom');
+
+    // 用内联样式直接设置 body 的左右内边距（内联样式优先级最高，确保边距真正生效）
+    try {
+      const contents = rendition.getContents?.() || [];
+      contents.forEach((c: any) => {
+        c.css?.('padding', '24px 56px 34px 56px', true);
+        c.css?.('margin', '0', true);
+      });
+    } catch (e) {
+      console.warn('[Reader] Set padding failed:', e);
+    }
   }, [settings]);
 
   // Re-apply theme when settings change
