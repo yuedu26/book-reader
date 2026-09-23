@@ -495,18 +495,31 @@ export default function Reader() {
                   cum += charCounts[i] || 0;
                 }
               }
+              // 规范化 href：去锚点/查询/路径，只留文件名，便于 TOC 与 spine 匹配
+              const normHref = (h: string) => {
+                let s = (h || '').split('#')[0].split('?')[0];
+                s = s.split('/').pop() || s;
+                return s.trim().toLowerCase();
+              };
+              const linearSections = spine.filter((s: any) => s.linear);
+              let tocCounter = 0;
               const walkToc = (items: Chapter[]) => {
                 for (const item of items) {
-                  const section = spine.find((s: any) =>
-                    s.href === item.href || item.href.includes(s.href) || s.href.includes(item.href)
-                  );
+                  const itemNorm = normHref(item.href);
+                  let section = spine.find((s: any) => normHref(s.href) === itemNorm);
+                  // fallback：按顺序对应 linear section（TOC 顺序通常与 spine 一致）
+                  if (!section && linearSections[tocCounter]) {
+                    section = linearSections[tocCounter];
+                  }
                   if (section && cumByHref[section.href] !== undefined) {
                     map[item.href] = Math.floor(cumByHref[section.href] / charsPerPage) + 1;
                   }
+                  tocCounter++;
                   if (item.subitems) walkToc(item.subitems);
                 }
               };
               walkToc(tocItems);
+              console.log('[Reader] toc page map size:', Object.keys(map).length, 'of', tocCounter);
 
               console.log('[Reader] computed total pages:', total, 'chars:', totalChars);
               if (!destroyed) {
@@ -686,14 +699,19 @@ export default function Reader() {
 
   // Navigate to TOC item
   const goToChapter = (href: string) => {
-    let target = href;
-    try { target = decodeURIComponent(href); } catch {}
-    // 用 spine 的 href 跳转（更可靠，因为 TOC href 可能格式不同）
+    // 规范化匹配 spine 的 href（TOC href 与 spine href 格式常不一致）
+    const normHref = (h: string) => {
+      let s = (h || '').split('#')[0].split('?')[0];
+      s = s.split('/').pop() || s;
+      return s.trim().toLowerCase();
+    };
     const spine = bookRef.current?.spine?.items || [];
-    const section = spine.find((s: any) => s.href === target || target.includes(s.href) || s.href.includes(target));
-    if (section?.href) target = section.href;
-    console.log('[Reader] goToChapter:', href, '->', target);
-    renditionRef.current?.display(target);
+    const target = normHref(href);
+    const section = spine.find((s: any) => normHref(s.href) === target);
+    // 优先用 spine 的完整 href 跳转，其次用原始 href
+    const finalTarget = section?.href || href;
+    console.log('[Reader] goToChapter:', href, '->', finalTarget);
+    renditionRef.current?.display(finalTarget);
     setTocOpen(false);
   };
 
