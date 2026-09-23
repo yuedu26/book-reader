@@ -76,6 +76,7 @@ export default function Reader() {
   const noteDialogLockRef = useRef(false); // 批注弹窗打开后短暂锁定遮罩，防止 iOS tap 的后续 click 立刻关掉它
   const noteDialogLockTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const atEndRef = useRef(false); // 是否在全书最后一页
+  const finishedRef = useRef(false); // 是否已读完（防止进度被后续保存覆盖）
   const readingStartRef = useRef(Date.now());
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const prevPageModeRef = useRef(settings.pageMode);
@@ -232,7 +233,7 @@ export default function Reader() {
               updateBook(bookId, {
                 currentLocation: cfi,
                 currentChapterHref: href || '',
-                progress: Math.min(progress, 1),
+                progress: finishedRef.current ? 1 : Math.min(progress, 1),
                 lastReadAt: Date.now(),
               });
 
@@ -328,6 +329,7 @@ export default function Reader() {
             } else if (screenX > width * 0.75) {
               if (atEndRef.current) {
                 // 已到最后一页，继续后翻 → 显示读完完成页
+                finishedRef.current = true;
                 setFinishedOpen(true);
                 if (bookId) updateBook(bookId, { progress: 1, lastReadAt: Date.now() });
               } else {
@@ -437,12 +439,16 @@ export default function Reader() {
           }
         });
 
-        // 恢复已有高亮（用当前 store 里的最新数据，annotation 会在各小节渲染时自动注入）
+        // 恢复已有划线/想法（划线用背景高亮，想法用轻量 mark 标记）
         useAppStore.getState().highlights
           .filter(hl => hl.bookId === bookId)
           .forEach(hl => {
             try {
-              rendition.annotations.add('highlight', hl.cfiRange, {}, undefined, undefined, highlightStyles());
+              if (hl.note && hl.note.trim().length > 0) {
+                rendition.annotations.add('mark', hl.cfiRange, {}, undefined, undefined);
+              } else {
+                rendition.annotations.add('highlight', hl.cfiRange, {}, undefined, undefined, highlightStyles());
+              }
             } catch (err) {
               console.warn('[Reader] Failed to restore highlight:', err);
             }
@@ -652,8 +658,8 @@ export default function Reader() {
         'font-family': fontStack + ' !important',
         'font-size': `${settings.fontSize}px !important`,
         'line-height': `${settings.lineHeight} !important`,
-        'padding': 'calc(24px + env(safe-area-inset-top, 0px)) 56px 34px 56px !important',
-        'margin': '0 !important',
+        'padding': '24px 56px 34px 56px !important',
+        'margin': '0 auto !important',
       },
       // 所有元素继承 body 的字号/行高/字体，确保字号调节真正生效
       '*': {
@@ -717,6 +723,7 @@ export default function Reader() {
   const goPrev = () => renditionRef.current?.prev();
   const goNext = () => {
     if (atEndRef.current) {
+      finishedRef.current = true;
       setFinishedOpen(true);
       if (bookId) updateBook(bookId, { progress: 1, lastReadAt: Date.now() });
     } else {
@@ -857,7 +864,8 @@ export default function Reader() {
       updatedAt: Date.now(),
     };
     addHighlight(hl);
-    renditionRef.current?.annotations.add('highlight', hl.cfiRange, {}, undefined, undefined, highlightStyles());
+    // 写想法用「mark」轻量标记（下划线），与「划线」的背景高亮区分，两者独立
+    renditionRef.current?.annotations.add('mark', hl.cfiRange, {}, undefined, undefined);
     setSelectionPopup(null);
     setNoteDialog({ highlightId: hl.id, text: hl.text });
   };

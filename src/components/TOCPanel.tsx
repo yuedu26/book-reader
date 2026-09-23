@@ -22,11 +22,18 @@ export default function TOCPanel({
 }: Props) {
   const [tab, setTab] = useState<'toc' | 'bookmarks'>('toc');
 
+  // 规范化 href，用于匹配当前阅读章节
+  const normHref = (h: string) => {
+    let s = (h || '').split('#')[0].split('?')[0];
+    s = s.split('/').pop() || s;
+    return s.trim().toLowerCase();
+  };
+
   const renderItem = (item: Chapter, level = 0) => (
     <React.Fragment key={item.href}>
       <button
         className={`toc-item ${level > 0 ? `level-${level}` : ''} ${
-          currentHref === item.href || currentHref.includes(item.href) ? 'active' : ''
+          normHref(currentHref) === normHref(item.href) ? 'active' : ''
         }`}
         onClick={() => onNavigate(item.href)}
       >
