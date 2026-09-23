@@ -71,6 +71,7 @@ export default function Reader() {
     highlightId: string; text: string; existingNote?: string;
   } | null>(null);
 
+  const noteDialogOpenedAtRef = useRef(0); // 批注弹窗打开时间（防止后续 click 立刻关掉它）
   const readingStartRef = useRef(Date.now());
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const prevPageModeRef = useRef(settings.pageMode);
@@ -407,6 +408,7 @@ export default function Reader() {
         rendition.on('markClicked', (cfiRange: string, data: any) => {
           const hl = useAppStore.getState().highlights.find(h => h.cfiRange === cfiRange);
           if (hl) {
+            noteDialogOpenedAtRef.current = Date.now();
             setNoteDialog({
               highlightId: hl.id,
               text: hl.text,
@@ -617,7 +619,7 @@ export default function Reader() {
         'font-family': fontStack + ' !important',
         'font-size': `${settings.fontSize}px !important`,
         'line-height': `${settings.lineHeight} !important`,
-        'padding': 'calc(24px + env(safe-area-inset-top, 0px)) 38px 34px 38px !important',
+        'padding': 'calc(24px + env(safe-area-inset-top, 0px)) 47px 34px 47px !important',
         'margin': '0 !important',
       },
       // 所有元素继承 body 的字号/行高/字体，确保字号调节真正生效
@@ -1038,7 +1040,14 @@ export default function Reader() {
 
       {/* Note dialog */}
       {noteDialog && (
-        <div className="modal-overlay" onClick={() => setNoteDialog(null)}>
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            // 刚打开 400ms 内的点击忽略（iOS tap 的 touchend 触发弹窗后，随后的 click 会落到遮罩上）
+            if (Date.now() - noteDialogOpenedAtRef.current < 400) return;
+            setNoteDialog(null);
+          }}
+        >
           <div className="modal-box" onClick={e => e.stopPropagation()}>
             <h3>批注</h3>
             <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12, fontStyle: 'italic' }}>

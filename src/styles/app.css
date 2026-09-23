@@ -970,6 +970,9 @@ a { color: var(--primary); text-decoration: none; }
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .note-delete {

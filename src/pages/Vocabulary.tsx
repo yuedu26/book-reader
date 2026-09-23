@@ -34,6 +34,12 @@ export default function NotesPage() {
 
   const bookTitle = (id: string) => books.find(b => b.id === id)?.title || '未知书籍';
 
+  // 书名过长时截断，避免撑开单行布局
+  const shortTitle = (id: string, max = 16) => {
+    const t = bookTitle(id);
+    return t.length > max ? t.slice(0, max) + '…' : t;
+  };
+
   const goTo = (bookId: string, cfiRange: string) => {
     setNavigateTarget({ bookId, cfiRange });
     navigate(`/reader/${bookId}`);
@@ -192,7 +198,7 @@ export default function NotesPage() {
             <div className="note-item-main" onClick={() => goTo(n.bookId, n.cfiRange)}>
               <div className="note-quote">“{n.text}”</div>
               <div className="note-content">{n.note}</div>
-              <div className="note-date">{bookTitle(n.bookId)} · {formatRelativeTime(n.updatedAt)}</div>
+              <div className="note-date">{shortTitle(n.bookId)} · {formatRelativeTime(n.updatedAt)}</div>
             </div>
             <button className="note-delete" onClick={() => { if (confirm('删除这条想法？')) removeHighlight(n.id); }} title="删除">
               <TrashIcon />
@@ -214,7 +220,7 @@ export default function NotesPage() {
             <div className="note-item-main" onClick={() => goTo(h.bookId, h.cfiRange)}>
               <div className="note-quote">“{h.text}”</div>
               {h.note && <div className="note-content">{h.note}</div>}
-              <div className="note-date">{bookTitle(h.bookId)} · {formatRelativeTime(h.updatedAt)}</div>
+              <div className="note-date">{shortTitle(h.bookId)} · {formatRelativeTime(h.updatedAt)}</div>
             </div>
             <button className="note-delete" onClick={() => { if (confirm('删除这条划线？')) removeHighlight(h.id); }} title="删除">
               <TrashIcon />
