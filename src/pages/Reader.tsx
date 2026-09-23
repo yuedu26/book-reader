@@ -70,8 +70,12 @@ export default function Reader() {
   const [noteDialog, setNoteDialog] = useState<{
     highlightId: string; text: string; existingNote?: string;
   } | null>(null);
+  const [atEnd, setAtEnd] = useState(false); // 是否在全书最后一页
+  const [finishedOpen, setFinishedOpen] = useState(false); // 读完完成页
 
-  const noteDialogOpenedAtRef = useRef(0); // 批注弹窗打开时间（防止后续 click 立刻关掉它）
+  const noteDialogLockRef = useRef(false); // 批注弹窗打开后短暂锁定遮罩，防止 iOS tap 的后续 click 立刻关掉它
+  const noteDialogLockTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const atEndRef = useRef(false); // 是否在全书最后一页
   const readingStartRef = useRef(Date.now());
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const prevPageModeRef = useRef(settings.pageMode);
@@ -186,7 +190,12 @@ export default function Reader() {
           if (destroyed) return;
           const cfi = location.start?.cfi;
           const href = location.start?.href;
-          
+
+          // 检测是否在全书最后一页
+          const isAtEnd = location.atEnd === true;
+          setAtEnd(isAtEnd);
+          atEndRef.current = isAtEnd;
+
           if (cfi && bookId) {
             // 章节内页码（epub.js 直接提供，可靠，随字体刷新）
             const dispPage = location.start?.displayed?.page;
@@ -317,7 +326,13 @@ export default function Reader() {
             if (screenX < width * 0.25) {
               rendition.prev();
             } else if (screenX > width * 0.75) {
-              rendition.next();
+              if (atEndRef.current) {
+                // 已到最后一页，继续后翻 → 显示读完完成页
+                setFinishedOpen(true);
+                if (bookId) updateBook(bookId, { progress: 1, lastReadAt: Date.now() });
+              } else {
+                rendition.next();
+              }
             } else {
               setShowToolbar(prev => !prev);
             }
@@ -408,7 +423,12 @@ export default function Reader() {
         rendition.on('markClicked', (cfiRange: string, data: any) => {
           const hl = useAppStore.getState().highlights.find(h => h.cfiRange === cfiRange);
           if (hl) {
-            noteDialogOpenedAtRef.current = Date.now();
+            // 锁定遮罩 800ms，防止 iOS tap 的后续 click 立刻关掉弹窗
+            noteDialogLockRef.current = true;
+            if (noteDialogLockTimerRef.current) clearTimeout(noteDialogLockTimerRef.current);
+            noteDialogLockTimerRef.current = setTimeout(() => {
+              noteDialogLockRef.current = false;
+            }, 800);
             setNoteDialog({
               highlightId: hl.id,
               text: hl.text,
@@ -632,7 +652,7 @@ export default function Reader() {
         'font-family': fontStack + ' !important',
         'font-size': `${settings.fontSize}px !important`,
         'line-height': `${settings.lineHeight} !important`,
-        'padding': 'calc(24px + env(safe-area-inset-top, 0px)) 47px 34px 47px !important',
+        'padding': 'calc(24px + env(safe-area-inset-top, 0px)) 56px 34px 56px !important',
         'margin': '0 !important',
       },
       // 所有元素继承 body 的字号/行高/字体，确保字号调节真正生效
@@ -695,7 +715,14 @@ export default function Reader() {
 
   // Navigate prev/next
   const goPrev = () => renditionRef.current?.prev();
-  const goNext = () => renditionRef.current?.next();
+  const goNext = () => {
+    if (atEndRef.current) {
+      setFinishedOpen(true);
+      if (bookId) updateBook(bookId, { progress: 1, lastReadAt: Date.now() });
+    } else {
+      renditionRef.current?.next();
+    }
+  };
 
   // Navigate to TOC item
   const goToChapter = (href: string) => {
@@ -1061,8 +1088,8 @@ export default function Reader() {
         <div
           className="modal-overlay"
           onClick={() => {
-            // 刚打开 400ms 内的点击忽略（iOS tap 的 touchend 触发弹窗后，随后的 click 会落到遮罩上）
-            if (Date.now() - noteDialogOpenedAtRef.current < 400) return;
+            // 锁定期间忽略（iOS tap 的 touchend 触发弹窗后，随后的 click 会落到遮罩上）
+            if (noteDialogLockRef.current) return;
             setNoteDialog(null);
           }}
         >
@@ -1116,6 +1143,23 @@ export default function Reader() {
         onDelete={removeHighlight}
         onExport={handleExportNotes}
       />
+
+      {/* 读完完成页 */}
+      {finishedOpen && (
+        <div className="modal-overlay" onClick={() => setFinishedOpen(false)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
+            <h3>已读完</h3>
+            <p style={{ fontSize: 14, color: 'var(--text-secondary)', margin: '8px 0 20px' }}>
+              《{book.title}》
+            </p>
+            <div className="modal-actions" style={{ justifyContent: 'center' }}>
+              <button className="btn btn-secondary" onClick={() => setFinishedOpen(false)}>继续阅读</button>
+              <button className="btn btn-primary" onClick={() => navigate('/')}>回到书架</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

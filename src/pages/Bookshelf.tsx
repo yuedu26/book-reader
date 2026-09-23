@@ -126,6 +126,9 @@ export default function Bookshelf() {
   const addBook = useAppStore(s => s.addBook);
   const removeBook = useAppStore(s => s.removeBook);
 
+  // 按最近阅读时间排序（最近阅读的排最前）
+  const sortedBooks = [...books].sort((a, b) => b.lastReadAt - a.lastReadAt);
+
   // 检测 standalone 模式和 IndexedDB 可用性
   React.useEffect(() => {
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
@@ -258,7 +261,7 @@ export default function Bookshelf() {
         />
       </div>
 
-      {books.length === 0 ? (
+      {sortedBooks.length === 0 ? (
         <div className="empty-state">
           <BookIcon />
           <p>书架是空的</p>
@@ -266,7 +269,7 @@ export default function Bookshelf() {
         </div>
       ) : (
         <div className="book-grid">
-          {books.map(book => (
+          {sortedBooks.map(book => (
             <div
               key={book.id}
               className="book-card"
@@ -286,7 +289,7 @@ export default function Bookshelf() {
                   <div className="book-cover-placeholder">{book.title}</div>
                 )}
                 {(book.progress || 0) >= 0.99 && (
-                  <div className="book-finished-badge">已读完</div>
+                  <div className="book-finished-badge">✓ 已读完</div>
                 )}
                 <div className="book-progress-bar">
                   <div
