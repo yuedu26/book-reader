@@ -29,7 +29,8 @@ export default function NotesPage() {
   }
 
   const vocab = inBook(vocabulary);
-  const allMarks = inBook(highlights);
+  // 划线：只有「没有写想法」的条目（想法是独立功能，不占划线列表）
+  const allMarks = inBook(highlights.filter(h => !h.note || h.note.trim().length === 0));
   const filteredNotes = inBook(highlights.filter(h => h.note && h.note.trim().length > 0));
 
   const bookTitle = (id: string) => books.find(b => b.id === id)?.title || '未知书籍';

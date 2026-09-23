@@ -16,7 +16,9 @@ export default function NotesPanel({ open, onClose, highlights, onNavigate, onDe
   const [tab, setTab] = useState<'notes' | 'marks'>('notes');
 
   const notes = highlights.filter(h => h.note && h.note.trim().length > 0);
-  const list = tab === 'notes' ? notes : highlights;
+  // 划线：只有「没有写想法」的条目
+  const marks = highlights.filter(h => !h.note || h.note.trim().length === 0);
+  const list = tab === 'notes' ? notes : marks;
   const sorted = [...list].sort((a, b) => b.updatedAt - a.updatedAt);
 
   return (

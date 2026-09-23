@@ -28,6 +28,17 @@ function highlightStyles() {
   };
 }
 
+// 想法统一为「下划线」标记（区别于划线的背景高亮）
+const NOTE_COLOR = '#5B8DEF';
+
+function noteStyles() {
+  return {
+    stroke: NOTE_COLOR,
+    'stroke-opacity': 0.85,
+    'stroke-width': 2,
+  };
+}
+
 export default function Reader() {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
@@ -439,13 +450,13 @@ export default function Reader() {
           }
         });
 
-        // 恢复已有划线/想法（划线用背景高亮，想法用轻量 mark 标记）
+        // 恢复已有划线/想法（划线用背景高亮，想法用蓝色下划线）
         useAppStore.getState().highlights
           .filter(hl => hl.bookId === bookId)
           .forEach(hl => {
             try {
               if (hl.note && hl.note.trim().length > 0) {
-                rendition.annotations.add('mark', hl.cfiRange, {}, undefined, undefined);
+                rendition.annotations.add('underline', hl.cfiRange, {}, undefined, undefined, noteStyles());
               } else {
                 rendition.annotations.add('highlight', hl.cfiRange, {}, undefined, undefined, highlightStyles());
               }
@@ -875,8 +886,8 @@ export default function Reader() {
       updatedAt: Date.now(),
     };
     addHighlight(hl);
-    // 写想法用「mark」轻量标记（下划线），与「划线」的背景高亮区分，两者独立
-    renditionRef.current?.annotations.add('mark', hl.cfiRange, {}, undefined, undefined);
+    // 写想法用「下划线」标记（蓝色），与「划线」的背景高亮区分，两者独立
+    renditionRef.current?.annotations.add('underline', hl.cfiRange, {}, undefined, undefined, noteStyles());
     setSelectionPopup(null);
     setNoteDialog({ highlightId: hl.id, text: hl.text });
   };
