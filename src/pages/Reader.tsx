@@ -97,6 +97,8 @@ export default function Reader() {
   const atEndRef = useRef(false); // 是否在全书最后一页
   const finishedRef = useRef(false); // 是否已读完（防止进度被后续保存覆盖）
   const applyPagePaddingRef = useRef<((doc: any) => void) | null>(null); // 设置正文边距（供 applyTheme 调用）
+  const layoutKeyRef = useRef(''); // 上一次的排版参数（用于判断是否真的需要重排）
+  const layoutSettleTimerRef = useRef<ReturnType<typeof setTimeout>>(); // 重排防抖定时器
   const readingStartRef = useRef(Date.now());
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const prevPageModeRef = useRef(settings.pageMode);
@@ -738,8 +740,8 @@ export default function Reader() {
         'font-family': fontStack + ' !important',
         'font-size': 'inherit !important',
         'line-height': 'inherit !important',
-        // 允许长按选择文本（iOS Safari）
-        '-webkit-touch-callout': 'default !important',
+        // 允许选中文字，同时抑制 iOS 长按弹出的原生系统菜单
+        '-webkit-touch-callout': 'none !important',
         '-webkit-user-select': 'text !important',
         'user-select': 'text !important',
       },
@@ -771,32 +773,36 @@ export default function Reader() {
 
   // Re-apply theme when settings change
   useEffect(() => {
-    if (renditionRef.current) {
-      applyTheme(renditionRef.current);
-      // 字号/主题/页边距改变后触发重新分页
-      setTimeout(() => {
-        try {
-          const r = renditionRef.current;
-          if (!r) return;
-          // 更新 epub.js 的 gap（左右内边距 = gap/2）
-          if (r.manager?.settings) {
-            r.manager.settings.gap = (settings.pageMargin ?? 32) * 2;
-          }
-          // 关键：epub.js 的 manager.resize 在尺寸不变时会直接 return（不重新布局），
-          // 清空 _stageSize 强制它重新走 updateLayout，gap 改动才会生效。
-          if (r.manager) {
-            (r.manager as any)._stageSize = undefined;
-          }
-          r.resize(window.innerWidth, window.innerHeight);
-        } catch (e) {
-          console.warn('[Reader] Re-paginate after theme change failed:', e);
+    if (!renditionRef.current) return;
+    applyTheme(renditionRef.current);
+
+    // 只有影响排版的设置才需要重排（字号/行高/页边距/字体），
+    // 且用防抖：拖动滑块时只在停止约 400ms 后重排一次，避免连续重排造成卡顿。
+    const layoutKey = `${settings.fontSize}|${settings.lineHeight}|${settings.fontFamily}|${settings.pageMargin}`;
+    if (layoutKeyRef.current === layoutKey) return;
+    layoutKeyRef.current = layoutKey;
+
+    if (layoutSettleTimerRef.current) clearTimeout(layoutSettleTimerRef.current);
+    layoutSettleTimerRef.current = setTimeout(() => {
+      try {
+        const r = renditionRef.current;
+        if (!r) return;
+        // 更新 epub.js 的 gap（左右内边距 = gap/2）
+        if (r.manager?.settings) {
+          r.manager.settings.gap = (settings.pageMargin ?? 32) * 2;
         }
-        // 字号/边距变化后重新生成页码
-        setTimeout(() => {
-          generatePagesRef.current?.();
-        }, 300);
-      }, 150);
-    }
+        // 关键：epub.js 的 manager.resize 在尺寸不变时会直接 return（不重新布局），
+        // 清空 _stageSize 强制它重新走 updateLayout，gap 改动才会生效。
+        if (r.manager) {
+          (r.manager as any)._stageSize = undefined;
+        }
+        r.resize(window.innerWidth, window.innerHeight);
+      } catch (e) {
+        console.warn('[Reader] Re-paginate after setting change failed:', e);
+      }
+      // 排版变化后重新生成页码
+      generatePagesRef.current?.();
+    }, 400);
   }, [settings, applyTheme]);
 
   // 翻页/滚动模式切换
@@ -882,12 +888,34 @@ export default function Reader() {
         chapterName = match ? match[1].replace(/_split_\d+$/, '') : '';
       }
 
+      // 关键：把「目录项」的 href 存进书签，保证书签能挂到目录对应章节下
+      const normHref = (h: string) => {
+        let s = (h || '').split('#')[0].split('?')[0];
+        s = s.split('/').pop() || s;
+        return s.trim().toLowerCase();
+      };
+      const flatToc: Chapter[] = [];
+      const flatten = (items: Chapter[]) => {
+        for (const it of items) {
+          flatToc.push(it);
+          if (it.subitems) flatten(it.subitems);
+        }
+      };
+      flatten(toc);
+      const matchedToc = flatToc.find(it =>
+        normHref(it.href) === normHref(book.currentChapterHref || '') ||
+        normHref(it.href).includes(normHref(book.currentChapterHref || '')) ||
+        normHref(book.currentChapterHref || '').includes(normHref(it.href))
+      );
+      const chapterHref = matchedToc?.href || book.currentChapterHref || '';
+      if (!chapterName && matchedToc) chapterName = matchedToc.label;
+
       const firstLine = extractFirstLine();
 
       addBookmark({
         id: generateId(),
         bookId: book.id,
-        chapterHref: book.currentChapterHref,
+        chapterHref,
         cfi: book.currentLocation,
         chapterTitle: chapterName,
         firstLine,

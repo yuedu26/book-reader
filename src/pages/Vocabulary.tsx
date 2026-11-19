@@ -2,18 +2,17 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../stores';
 import { formatRelativeTime, copyTextToClipboard } from '../utils';
-import { TrashIcon, CheckIcon, VocabIcon, NoteIcon } from '../components/Icons';
-import type { VocabularyWord } from '../types';
+import { TrashIcon, CheckIcon, VocabIcon, ChevronLeftIcon } from '../components/Icons';
+import type { VocabularyWord, Highlight, Book } from '../types';
 import {
   buildVocabularyText, exportVocabularyAsText, exportHighlightsAsText,
 } from '../services/backup';
 
-type TabKey = 'vocab' | 'notes' | 'marks';
-
 export default function NotesPage() {
   const navigate = useNavigate();
-  const [tab, setTab] = useState<TabKey>('vocab');
-  const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
+  const [view, setView] = useState<'books' | 'all'>('books');
+  const [activeBookId, setActiveBookId] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState<'marks' | 'notes' | 'vocab'>('marks');
   const [copied, setCopied] = useState(false);
 
   const books = useAppStore(s => s.books);
@@ -24,128 +23,250 @@ export default function NotesPage() {
   const removeHighlight = useAppStore(s => s.removeHighlight);
   const setNavigateTarget = useAppStore(s => s.setNavigateTarget);
 
-  function inBook<T extends { bookId: string }>(items: T[]): T[] {
-    return selectedBookId ? items.filter(x => x.bookId === selectedBookId) : items;
-  }
-
-  const vocab = inBook(vocabulary);
-  // 划线：只有「没有写想法」的条目（想法是独立功能，不占划线列表）
-  const allMarks = inBook(highlights.filter(h => !h.note || h.note.trim().length === 0));
-  const filteredNotes = inBook(highlights.filter(h => h.note && h.note.trim().length > 0));
-
   const bookTitle = (id: string) => books.find(b => b.id === id)?.title || '未知书籍';
-
-  // 书名过长时截断，避免撑开单行布局
-  const shortTitle = (id: string, max = 16) => {
-    const t = bookTitle(id);
-    return t.length > max ? t.slice(0, max) + '…' : t;
-  };
 
   const goTo = (bookId: string, cfiRange: string) => {
     setNavigateTarget({ bookId, cfiRange });
     navigate(`/reader/${bookId}`);
   };
 
-  const handleCopyAll = async () => {
-    await copyTextToClipboard(buildVocabularyText(vocab, books, false));
+  const chapterNameOf = (href: string) => {
+    if (!href) return '未知章节';
+    let s = href.split('#')[0].split('?')[0].split('/').pop() || href;
+    s = s.replace(/\.(xhtml|html|htm)$/i, '').replace(/_split_\d+$/, '');
+    return s || '未知章节';
+  };
+
+  // 每本书的标注统计
+  const bookStats = books
+    .map(b => {
+      const hs = highlights.filter(h => h.bookId === b.id);
+      const markCount = hs.filter(h => !h.note || h.note.trim().length === 0).length;
+      const noteCount = hs.filter(h => h.note && h.note.trim().length > 0).length;
+      const vocabCount = vocabulary.filter(v => v.bookId === b.id).length;
+      const times = [
+        ...hs.map(h => h.updatedAt),
+        ...vocabulary.filter(v => v.bookId === b.id).map(v => v.createdAt),
+      ];
+      const lastAt = times.length ? Math.max(...times) : 0;
+      return { book: b, markCount, noteCount, vocabCount, lastAt };
+    })
+    .filter(s => s.markCount + s.noteCount + s.vocabCount > 0)
+    .sort((a, b) => b.lastAt - a.lastAt);
+
+  const activeBook = activeBookId ? books.find(b => b.id === activeBookId) : null;
+  const activeHighlights = activeBookId ? highlights.filter(h => h.bookId === activeBookId) : [];
+  const activeMarks = activeHighlights
+    .filter(h => !h.note || h.note.trim().length === 0)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const activeNotes = activeHighlights
+    .filter(h => h.note && h.note.trim().length > 0)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const activeVocab = activeBookId ? vocabulary.filter(v => v.bookId === activeBookId) : [];
+
+  const allMarks = highlights.slice().sort((a, b) => b.updatedAt - a.updatedAt);
+
+  const groupByChapter = <T extends { chapterHref: string }>(items: T[]) => {
+    const m: Record<string, T[]> = {};
+    for (const it of items) {
+      const k = chapterNameOf(it.chapterHref);
+      (m[k] ||= []).push(it);
+    }
+    return Object.entries(m);
+  };
+
+  const handleCopyVocab = async () => {
+    await copyTextToClipboard(buildVocabularyText(activeVocab, activeBook ? [activeBook] : books, false));
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
 
-  // 生词按章节分组
-  const grouped = vocab.reduce<Record<string, VocabularyWord[]>>((acc, w) => {
-    let chapterName = w.chapterTitle;
-    
-    // 清理 chapterTitle：去掉 HTML 标签
-    if (chapterName) {
-      chapterName = chapterName.replace(/<[^>]*>/g, '').trim();
-    }
-    
-    // 如果 chapterTitle 为空或无效，从 chapterHref 提取
-    if (!chapterName && w.chapterHref) {
-      // 从 href 提取章节名：OEBPS/chapter1_split_002.xhtml#anchor -> chapter1
-      const match = w.chapterHref
-        .replace(/#.*$/, '')                    // 去掉锚点
-        .replace(/.*\//, '')                    // 去掉路径前缀
-        .replace(/\.(xhtml|html|htm)$/i, '')    // 去掉扩展名
-        .replace(/_split_\d+$/, '')             // 去掉 _split_002 后缀
-        .match(/^(.+)$/);
-      chapterName = match ? match[1] : w.chapterHref;
-      console.log('[Vocab] Extracted chapter name from href:', chapterName, 'from:', w.chapterHref);
-    }
-    
-    const key = chapterName || '未知章节';
-    (acc[key] ||= []).push(w);
+  // ===== 书列表 =====
+  if (!activeBookId) {
+    return (
+      <div className="page-content">
+        <div className="notes-header">
+          <h1>笔记</h1>
+          <p className="notes-subtitle">
+            {bookStats.length} 本书 · 共 {highlights.length} 条标注
+          </p>
+        </div>
+
+        <div className="notes-tabs">
+          <button className={`notes-tab ${view === 'books' ? 'active' : ''}`} onClick={() => setView('books')}>
+            按书查看
+          </button>
+          <button className={`notes-tab ${view === 'all' ? 'active' : ''}`} onClick={() => setView('all')}>
+            全部笔记
+          </button>
+        </div>
+
+        {view === 'all' ? (
+          allMarks.length === 0 ? (
+            <div className="empty-state">
+              <VocabIcon />
+              <p>还没有笔记</p>
+              <small>阅读时选中文字即可记录划线或想法</small>
+            </div>
+          ) : (
+            <div className="notes-all-list">
+              {allMarks.slice(0, 200).map(h => (
+                <div key={h.id} className="note-item">
+                  <div className="note-item-main" onClick={() => goTo(h.bookId, h.cfiRange)}>
+                    <div className="note-book-tag">{bookTitle(h.bookId)}</div>
+                    <div className="note-quote">“{h.text}”</div>
+                    {h.note && <div className="note-content">{h.note}</div>}
+                    <div className="note-date">{formatRelativeTime(h.updatedAt)}</div>
+                  </div>
+                  <button className="note-delete" onClick={() => removeHighlight(h.id)} title="删除">
+                    <TrashIcon />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )
+        ) : bookStats.length === 0 ? (
+          <div className="empty-state">
+            <VocabIcon />
+            <p>还没有笔记</p>
+            <small>阅读时选中文字即可记录划线或想法</small>
+          </div>
+        ) : (
+          <div className="notes-book-list">
+            {bookStats.map(({ book, markCount, noteCount, vocabCount, lastAt }) => (
+              <div key={book.id} className="notes-book-card" onClick={() => { setActiveBookId(book.id); setDetailTab(markCount > 0 ? 'marks' : noteCount > 0 ? 'notes' : 'vocab'); }}>
+                <div className="notes-book-cover">
+                  {book.cover ? (
+                    <img src={book.cover} alt={book.title} />
+                  ) : (
+                    <div className="notes-book-cover-ph">{(book.title || '书')[0]}</div>
+                  )}
+                </div>
+                <div className="notes-book-main">
+                  <div className="notes-book-title">{book.title}</div>
+                  <div className="notes-book-stats">
+                    {markCount > 0 && <span>{markCount} 条划线</span>}
+                    {noteCount > 0 && <span>{noteCount} 条想法</span>}
+                    {vocabCount > 0 && <span>{vocabCount} 个生词</span>}
+                  </div>
+                  <div className="notes-book-meta">
+                    {lastAt > 0 ? formatRelativeTime(lastAt) : ''}
+                    {(book.progress ?? 0) >= 0.99 ? ' · 已读完' : ''}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ===== 书详情 =====
+  const marksGrouped = groupByChapter(activeMarks);
+  const notesGrouped = groupByChapter(activeNotes);
+  const vocabGrouped = activeVocab.reduce<Record<string, VocabularyWord[]>>((acc, w) => {
+    const k = chapterNameOf(w.chapterHref);
+    (acc[k] ||= []).push(w);
     return acc;
   }, {});
 
-  const marksSorted = allMarks.slice().sort((a, b) => b.updatedAt - a.updatedAt);
-  const notesSorted = filteredNotes.slice().sort((a, b) => b.updatedAt - a.updatedAt);
-
   return (
     <div className="page-content">
-      <div className="notes-header">
-        <h1>笔记</h1>
+      <div className="notes-detail-header">
+        <button className="toolbar-btn" onClick={() => setActiveBookId(null)}>
+          <ChevronLeftIcon />
+        </button>
+        <h1 className="notes-detail-title">{activeBook?.title || '笔记'}</h1>
       </div>
 
-      {/* 三分类 */}
+      <div className="notes-detail-stats">
+        {activeMarks.length} 条划线 · {activeNotes.length} 条想法 · {activeVocab.length} 个生词
+      </div>
+
       <div className="notes-tabs">
-        <button className={`notes-tab ${tab === 'vocab' ? 'active' : ''}`} onClick={() => setTab('vocab')}>
-          生词本 {vocab.length > 0 && <em>{vocab.length}</em>}
+        <button className={`notes-tab ${detailTab === 'marks' ? 'active' : ''}`} onClick={() => setDetailTab('marks')}>
+          划线 {activeMarks.length > 0 && <em>{activeMarks.length}</em>}
         </button>
-        <button className={`notes-tab ${tab === 'notes' ? 'active' : ''}`} onClick={() => setTab('notes')}>
-          想法 {filteredNotes.length > 0 && <em>{filteredNotes.length}</em>}
+        <button className={`notes-tab ${detailTab === 'notes' ? 'active' : ''}`} onClick={() => setDetailTab('notes')}>
+          想法 {activeNotes.length > 0 && <em>{activeNotes.length}</em>}
         </button>
-        <button className={`notes-tab ${tab === 'marks' ? 'active' : ''}`} onClick={() => setTab('marks')}>
-          划线 {allMarks.length > 0 && <em>{allMarks.length}</em>}
+        <button className={`notes-tab ${detailTab === 'vocab' ? 'active' : ''}`} onClick={() => setDetailTab('vocab')}>
+          生词 {activeVocab.length > 0 && <em>{activeVocab.length}</em>}
         </button>
       </div>
 
-      {/* 书籍筛选 */}
-      <div className="vocab-filters">
-        <button
-          className={`vocab-filter-btn ${!selectedBookId ? 'active' : ''}`}
-          onClick={() => setSelectedBookId(null)}
-        >
-          全部
-        </button>
-        {books.map(b => (
-          <button
-            key={b.id}
-            className={`vocab-filter-btn ${selectedBookId === b.id ? 'active' : ''}`}
-            onClick={() => setSelectedBookId(b.id)}
-          >
-            {b.title}
-          </button>
-        ))}
-      </div>
-
-      {/* 操作栏 */}
       <div className="notes-actions">
-        {tab === 'vocab' && (
+        {detailTab === 'marks' && (
+          <button className="notes-action-btn" onClick={() => exportHighlightsAsText(activeMarks, activeBook ? [activeBook] : books, false)}>导出划线 TXT</button>
+        )}
+        {detailTab === 'notes' && (
+          <button className="notes-action-btn" onClick={() => exportHighlightsAsText(activeNotes, activeBook ? [activeBook] : books, true)}>导出想法 TXT</button>
+        )}
+        {detailTab === 'vocab' && (
           <>
-            <button className="notes-action-btn" onClick={handleCopyAll}>{copied ? '✓ 已复制' : '复制单词'}</button>
-            <button className="notes-action-btn" onClick={() => exportVocabularyAsText(vocab, books, false)}>导出单词</button>
-            <button className="notes-action-btn" onClick={() => exportVocabularyAsText(vocab, books, true)}>导出单词+例句</button>
+            <button className="notes-action-btn" onClick={handleCopyVocab}>{copied ? '✓ 已复制' : '复制单词'}</button>
+            <button className="notes-action-btn" onClick={() => exportVocabularyAsText(activeVocab, activeBook ? [activeBook] : books, false)}>导出单词</button>
+            <button className="notes-action-btn" onClick={() => exportVocabularyAsText(activeVocab, activeBook ? [activeBook] : books, true)}>导出单词+例句</button>
           </>
         )}
-        {tab === 'notes' && (
-          <button className="notes-action-btn" onClick={() => exportHighlightsAsText(filteredNotes, books, true)}>导出想法 TXT</button>
-        )}
-        {tab === 'marks' && (
-          <button className="notes-action-btn" onClick={() => exportHighlightsAsText(allMarks, books, false)}>导出划线 TXT</button>
-        )}
       </div>
 
-      {/* 生词本 */}
-      {tab === 'vocab' && (vocab.length === 0 ? (
+      {/* 划线 */}
+      {detailTab === 'marks' && (activeMarks.length === 0 ? (
+        <div className="empty-state"><p>还没有划线</p></div>
+      ) : (
+        marksGrouped.map(([chapter, items]) => (
+          <div key={chapter} className="notes-chapter-group">
+            <div className="notes-chapter-title">{chapter}</div>
+            {items.map(h => (
+              <div key={h.id} className="note-item">
+                <div className="note-item-main" onClick={() => goTo(h.bookId, h.cfiRange)}>
+                  <div className="note-quote">“{h.text}”</div>
+                  {h.note && <div className="note-content">{h.note}</div>}
+                  <div className="note-date">{formatRelativeTime(h.updatedAt)}</div>
+                </div>
+                <button className="note-delete" onClick={() => removeHighlight(h.id)} title="删除">
+                  <TrashIcon />
+                </button>
+              </div>
+            ))}
+          </div>
+        ))
+      ))}
+
+      {/* 想法 */}
+      {detailTab === 'notes' && (activeNotes.length === 0 ? (
+        <div className="empty-state"><p>还没有想法</p></div>
+      ) : (
+        notesGrouped.map(([chapter, items]) => (
+          <div key={chapter} className="notes-chapter-group">
+            <div className="notes-chapter-title">{chapter}</div>
+            {items.map(h => (
+              <div key={h.id} className="note-item">
+                <div className="note-item-main" onClick={() => goTo(h.bookId, h.cfiRange)}>
+                  <div className="note-quote">“{h.text}”</div>
+                  <div className="note-content">{h.note}</div>
+                  <div className="note-date">{formatRelativeTime(h.updatedAt)}</div>
+                </div>
+                <button className="note-delete" onClick={() => removeHighlight(h.id)} title="删除">
+                  <TrashIcon />
+                </button>
+              </div>
+            ))}
+          </div>
+        ))
+      ))}
+
+      {/* 生词 */}
+      {detailTab === 'vocab' && (activeVocab.length === 0 ? (
         <div className="empty-state">
           <VocabIcon />
-          <p>{selectedBookId ? '这本书还没有生词' : '生词本是空的'}</p>
+          <p>这本书还没有生词</p>
           <small>阅读时选中英文单词，点「查词」自动加入</small>
         </div>
       ) : (
-        Object.entries(grouped).map(([chapter, words]) => (
+        Object.entries(vocabGrouped).map(([chapter, words]) => (
           <div key={chapter} className="vocab-chapter-group">
             <div className="vocab-chapter-title">
               <span>{chapter}</span>
@@ -160,21 +281,20 @@ export default function NotesPage() {
                       className="vocab-action-btn"
                       onClick={() => incrementReview(w.id)}
                       title="标记已复习"
-                      style={{ color: 'var(--success)', fontSize: '12px' }}
+                      style={{ color: 'var(--success)' }}
                     >
-                      ✓ {w.reviewCount}
+                      <CheckIcon />
                     </button>
                     <button
                       className="vocab-action-btn"
                       onClick={() => { if (confirm(`确定删除 "${w.word}" 吗？`)) removeWord(w.id); }}
                       title="删除"
-                      style={{ color: 'var(--danger)', fontSize: '12px' }}
+                      style={{ color: 'var(--danger)' }}
                     >
-                      删除
+                      <TrashIcon />
                     </button>
                   </div>
                 </div>
-                {w.definition && <div className="vocab-definition">{w.definition}</div>}
                 {w.context && <div className="vocab-context">"{w.context}"</div>}
                 <div className="vocab-meta">
                   <span>复习 {w.reviewCount} 次</span>
@@ -182,50 +302,6 @@ export default function NotesPage() {
                 </div>
               </div>
             ))}
-          </div>
-        ))
-      ))}
-
-      {/* 想法 */}
-      {tab === 'notes' && (notesSorted.length === 0 ? (
-        <div className="empty-state">
-          <NoteIcon />
-          <p>{selectedBookId ? '这本书还没有想法' : '还没有想法'}</p>
-          <small>阅读时选中文字，点「想法」写下批注</small>
-        </div>
-      ) : (
-        notesSorted.map(n => (
-          <div key={n.id} className="note-item">
-            <div className="note-item-main" onClick={() => goTo(n.bookId, n.cfiRange)}>
-              <div className="note-quote">“{n.text}”</div>
-              <div className="note-content">{n.note}</div>
-              <div className="note-date">{shortTitle(n.bookId)} · {formatRelativeTime(n.updatedAt)}</div>
-            </div>
-            <button className="note-delete" onClick={() => { if (confirm('删除这条想法？')) removeHighlight(n.id); }} title="删除">
-              <TrashIcon />
-            </button>
-          </div>
-        ))
-      ))}
-
-      {/* 划线 */}
-      {tab === 'marks' && (marksSorted.length === 0 ? (
-        <div className="empty-state">
-          <NoteIcon />
-          <p>{selectedBookId ? '这本书还没有划线' : '还没有划线'}</p>
-          <small>阅读时选中文字，点「划线」标记重点</small>
-        </div>
-      ) : (
-        marksSorted.map(h => (
-          <div key={h.id} className="note-item">
-            <div className="note-item-main" onClick={() => goTo(h.bookId, h.cfiRange)}>
-              <div className="note-quote">“{h.text}”</div>
-              {h.note && <div className="note-content">{h.note}</div>}
-              <div className="note-date">{shortTitle(h.bookId)} · {formatRelativeTime(h.updatedAt)}</div>
-            </div>
-            <button className="note-delete" onClick={() => { if (confirm('删除这条划线？')) removeHighlight(h.id); }} title="删除">
-              <TrashIcon />
-            </button>
           </div>
         ))
       ))}
