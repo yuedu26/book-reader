@@ -184,6 +184,9 @@ export default function Reader() {
           flow: settings.pageMode === 'scrolled' ? 'scrolled' : 'paginated',
           spread: 'none',
           allowScriptedContent: true,
+          // 关键：epub.js 分页时左右内边距 = gap / 2（layout.calculate → columns 里写死），
+          // 所以要让书页边距为 pageMargin，就得把 gap 设为 pageMargin * 2。
+          gap: (settings.pageMargin ?? 32) * 2,
         });
         renditionRef.current = rendition;
 
@@ -756,14 +759,20 @@ export default function Reader() {
   useEffect(() => {
     if (renditionRef.current) {
       applyTheme(renditionRef.current);
-      // 字号/主题改变后触发重新分页（用窗口尺寸，避免 clientHeight 在 iOS 上含地址栏导致偏大）
+      // 字号/主题/页边距改变后触发重新分页
       setTimeout(() => {
         try {
-          renditionRef.current?.resize(window.innerWidth, window.innerHeight);
+          const r = renditionRef.current;
+          if (!r) return;
+          // 更新 epub.js 的 gap（左右内边距 = gap/2），再 resize 让新布局生效
+          if (r.manager?.settings) {
+            r.manager.settings.gap = (settings.pageMargin ?? 32) * 2;
+          }
+          r.resize(window.innerWidth, window.innerHeight);
         } catch (e) {
           console.warn('[Reader] Re-paginate after theme change failed:', e);
         }
-        // 字号变化后重新生成页码
+        // 字号/边距变化后重新生成页码
         setTimeout(() => {
           generatePagesRef.current?.();
         }, 300);
