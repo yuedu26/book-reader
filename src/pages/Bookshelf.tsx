@@ -300,7 +300,6 @@ export default function Bookshelf() {
               </div>
               <div className="book-info">
                 <div className="book-title">{book.title}</div>
-                <div className="book-author">{book.author}</div>
                 <div className="book-meta">
                   {book.progress > 0 ? `${Math.round(book.progress * 100)}% · ` : ''}
                   {formatRelativeTime(book.lastReadAt)}

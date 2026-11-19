@@ -432,19 +432,37 @@ export default function Reader() {
             });
           }
 
-          // iOS Safari 兼容：mouseup 事件检测文本选择
+          // 选择变更的延迟计时器：给用户留时间拖手柄调整范围，稳定后再弹工具条
+          let selectionTimer: ReturnType<typeof setTimeout> | null = null;
+          const scheduleSelectionPopup = (delay = 450) => {
+            if (selectionTimer) clearTimeout(selectionTimer);
+            selectionTimer = setTimeout(() => {
+              const sel = win?.getSelection?.()?.toString?.();
+              if (!sel || sel.trim().length === 0) return;
+              const range = win?.getSelection()?.getRangeAt(0);
+              if (!range) return;
+              const cfiRange = rendition.cfis?.fromRange(range);
+              if (cfiRange) rendition.emit('selected', cfiRange, sel);
+            }, delay);
+          };
+
+          // iOS Safari 兼容：mouseup 检测到选择后延迟弹工具条（期间可继续拖手柄调整）
           doc.addEventListener('mouseup', () => {
             const sel = win?.getSelection?.()?.toString?.();
-            if (sel && sel.trim().length > 0) {
-              setTimeout(() => {
-                const range = win?.getSelection()?.getRangeAt(0);
-                if (range) {
-                  const cfiRange = rendition.cfis?.fromRange(range);
-                  if (cfiRange) rendition.emit('selected', cfiRange, sel);
-                }
-              }, 100);
-            }
+            if (sel && sel.trim().length > 0) scheduleSelectionPopup(450);
           });
+
+          // 开始拖手柄调整时，取消即将弹出的工具条，等调整稳定后再弹
+          doc.addEventListener('touchstart', (ev: TouchEvent) => {
+            const sel = win?.getSelection?.()?.toString?.();
+            if (sel && sel.trim().length > 0) {
+              if (selectionTimer) clearTimeout(selectionTimer);
+            }
+          }, { passive: true });
+          doc.addEventListener('touchend', (ev: TouchEvent) => {
+            const sel = win?.getSelection?.()?.toString?.();
+            if (sel && sel.trim().length > 0) scheduleSelectionPopup(450);
+          }, { passive: true });
         };
 
         // 直接对正文 body 设内联边距（内联 !important 优先级最高，确保边距真正生效）

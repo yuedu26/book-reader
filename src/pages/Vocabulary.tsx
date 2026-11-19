@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../stores';
 import { formatRelativeTime, copyTextToClipboard } from '../utils';
@@ -14,6 +14,8 @@ export default function NotesPage() {
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<'marks' | 'notes' | 'vocab'>('marks');
   const [copied, setCopied] = useState(false);
+  const [swipedId, setSwipedId] = useState<string | null>(null); // 左滑删除中的单词
+  const touchStartXRef = useRef(0);
 
   const books = useAppStore(s => s.books);
   const vocabulary = useAppStore(s => s.vocabulary);
@@ -273,33 +275,39 @@ export default function NotesPage() {
               <span>{words.length} 个</span>
             </div>
             {words.map(w => (
-              <div key={w.id} className="vocab-card">
-                <div className="vocab-card-header">
-                  <span className="vocab-word">{w.word}</span>
-                  <div className="vocab-actions">
+              <div key={w.id} className="vocab-swipe-wrap">
+                {/* 可左滑的内容层 */}
+                <div
+                  className={`vocab-card ${swipedId === w.id ? 'swiped' : ''}`}
+                  onTouchStart={e => { touchStartXRef.current = e.touches[0].clientX; }}
+                  onTouchEnd={e => {
+                    const dx = e.changedTouches[0].clientX - touchStartXRef.current;
+                    if (dx < -50) setSwipedId(w.id);        // 左滑 → 露出删除
+                    else if (dx > 30) setSwipedId(null);    // 右滑 → 收起
+                  }}
+                >
+                  <div className="vocab-card-header">
+                    <span className="vocab-word">{w.word}</span>
                     <button
-                      className="vocab-action-btn"
+                      className="vocab-review-btn"
                       onClick={() => incrementReview(w.id)}
                       title="标记已复习"
-                      style={{ color: 'var(--success)' }}
                     >
-                      <CheckIcon />
-                    </button>
-                    <button
-                      className="vocab-action-btn"
-                      onClick={() => { if (confirm(`确定删除 "${w.word}" 吗？`)) removeWord(w.id); }}
-                      title="删除"
-                      style={{ color: 'var(--danger)' }}
-                    >
-                      <TrashIcon />
+                      <CheckIcon /> {w.reviewCount}
                     </button>
                   </div>
+                  {w.context && <div className="vocab-context">"{w.context}"</div>}
+                  <div className="vocab-meta">
+                    <span>{formatRelativeTime(w.createdAt)}</span>
+                  </div>
                 </div>
-                {w.context && <div className="vocab-context">"{w.context}"</div>}
-                <div className="vocab-meta">
-                  <span>复习 {w.reviewCount} 次</span>
-                  <span>{formatRelativeTime(w.createdAt)}</span>
-                </div>
+                {/* 左滑露出的删除按钮 */}
+                <button
+                  className="vocab-swipe-delete"
+                  onClick={() => { setSwipedId(null); removeWord(w.id); }}
+                >
+                  删除
+                </button>
               </div>
             ))}
           </div>

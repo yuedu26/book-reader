@@ -15,10 +15,19 @@ export default function TextSelectionPopup({
   y, text, isSingleWord,
   onCopy, onHighlight, onNote, onLookup, onClose,
 }: Props) {
-  // 工具条固定在屏幕底部：iOS 原生选择菜单贴着选中文字出现，底部固定可避开它，互不遮挡
+  // 工具条出现在选中位置附近，但与选中处留足间距（约 96px），
+  // 这样即使 iOS 原生选择菜单冒出来，也不会挡住我们的工具条。
+  const viewportH = typeof window !== 'undefined' ? window.innerHeight : 800;
+  const GAP = 96;
+  let top = y + GAP;
+  if (top + 130 > viewportH) {
+    // 下方空间不够，改放到选中处上方
+    top = Math.max(8, y - GAP - 70);
+  }
+
   return (
     <>
-      <div className="text-selection-popup" style={{ bottom: 'calc(24px + env(safe-area-inset-bottom, 0px))', top: 'auto' }}>
+      <div className="text-selection-popup" style={{ top }}>
         <div className="popup-actions-row">
           <button className="popup-action-btn" onClick={onCopy} title="复制">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
