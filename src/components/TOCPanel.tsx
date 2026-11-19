@@ -13,12 +13,13 @@ interface Props {
   onNavigateBookmark: (cfi: string) => void;
   onDeleteBookmark: (id: string) => void;
   tocPageMap?: Record<string, number>;
+  bookmarkPageMap?: Record<string, number>;
 }
 
 export default function TOCPanel({
   open, onClose, toc, currentHref, onNavigate,
   bookmarks, onNavigateBookmark, onDeleteBookmark,
-  tocPageMap,
+  tocPageMap, bookmarkPageMap,
 }: Props) {
   const [tab, setTab] = useState<'toc' | 'bookmarks'>('toc');
 
@@ -74,7 +75,12 @@ export default function TOCPanel({
             [...bookmarks].sort((a, b) => b.createdAt - a.createdAt).map(bm => (
               <div key={bm.id} className="bookmark-item">
                 <div className="bookmark-info" onClick={() => onNavigateBookmark(bm.cfi)}>
-                  <div className="bookmark-chapter">{bm.chapterTitle || '未知章节'}</div>
+                  <div className="bookmark-chapter">
+                    {bm.chapterTitle || '未知章节'}
+                    {bookmarkPageMap?.[bm.id] ? (
+                      <span className="bookmark-page">P{bookmarkPageMap[bm.id]}</span>
+                    ) : null}
+                  </div>
                   {bm.firstLine && <div className="bookmark-firstline">“{bm.firstLine}”</div>}
                   <div className="bookmark-date">{formatRelativeTime(bm.createdAt)}</div>
                 </div>

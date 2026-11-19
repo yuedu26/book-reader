@@ -16,12 +16,17 @@ import TextSelectionPopup from '../components/HighlightPopup';
 import { exportHighlightsAsText } from '../services/backup';
 import type { Chapter, Highlight } from '../types';
 
-// 划线统一为「背景色高亮」，颜色固定为舒适蓝
+// 划线统一为「背景色高亮」；深色主题下自动切换成柔和的暗蓝，避免刺眼
 const MARK_COLOR = '#B3D9FF';
+const MARK_COLOR_DARK = 'rgba(96, 140, 190, 0.45)';
+
+function isDarkTheme(): boolean {
+  return useAppStore.getState().settings.theme === 'dark';
+}
 
 function highlightStyles() {
   return {
-    'background-color': MARK_COLOR,
+    'background-color': isDarkTheme() ? MARK_COLOR_DARK : MARK_COLOR,
     'background-image': 'none',
     'border-radius': '2px',
     'padding': '0 2px',
@@ -30,10 +35,11 @@ function highlightStyles() {
 
 // 想法统一为「下划线」标记（区别于划线的背景高亮）
 const NOTE_COLOR = '#5B8DEF';
+const NOTE_COLOR_DARK = '#6B9FE8';
 
 function noteStyles() {
   return {
-    stroke: NOTE_COLOR,
+    stroke: isDarkTheme() ? NOTE_COLOR_DARK : NOTE_COLOR,
     'stroke-opacity': 0.85,
     'stroke-width': 2,
   };
@@ -75,6 +81,7 @@ export default function Reader() {
   const [chapterPage, setChapterPage] = useState(0); // 当前章节内页码
   const [chapterTotalPages, setChapterTotalPages] = useState(0); // 当前章节总页数
   const [tocPageMap, setTocPageMap] = useState<Record<string, number>>({}); // 目录项 href -> 起始页码
+  const [bookmarkPageMap, setBookmarkPageMap] = useState<Record<string, number>>({}); // 书签 id -> 页码
   const [selectionPopup, setSelectionPopup] = useState<{
     y: number; text: string; cfiRange: string; isSingleWord: boolean;
   } | null>(null);
@@ -88,6 +95,7 @@ export default function Reader() {
   const noteDialogLockTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const atEndRef = useRef(false); // 是否在全书最后一页
   const finishedRef = useRef(false); // 是否已读完（防止进度被后续保存覆盖）
+  const applyPagePaddingRef = useRef<((doc: any) => void) | null>(null); // 设置正文边距（供 applyTheme 调用）
   const readingStartRef = useRef(Date.now());
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const prevPageModeRef = useRef(settings.pageMode);
@@ -244,7 +252,8 @@ export default function Reader() {
               updateBook(bookId, {
                 currentLocation: cfi,
                 currentChapterHref: href || '',
-                progress: finishedRef.current ? 1 : Math.min(progress, 1),
+                // 已在全书最后一页 / 已读完 → 固定 100%
+                progress: (finishedRef.current || atEndRef.current) ? 1 : Math.min(progress, 1),
                 lastReadAt: Date.now(),
               });
 
@@ -393,11 +402,28 @@ export default function Reader() {
           });
         };
 
+        // 直接对正文 body 设内联边距（内联 !important 优先级最高，确保边距真正生效）
+        const applyPagePadding = (doc: any) => {
+          try {
+            const body = doc?.body;
+            if (!body) return;
+            const m = settings.pageMargin ?? 32;
+            body.style.setProperty('padding', `32px ${m}px 40px ${m}px`, 'important');
+            body.style.setProperty('margin', '0', 'important');
+          } catch (e) {
+            console.warn('[Reader] applyPagePadding failed:', e);
+          }
+        };
+        applyPagePaddingRef.current = applyPagePadding;
+
         rendition.on('rendered', (section: any, view: any) => {
           if (destroyed) return;
           try {
             const doc = view?.contents?.document;
-            if (doc) bindPageEvents(doc, view.contents);
+            if (doc) {
+              bindPageEvents(doc, view.contents);
+              applyPagePadding(doc);
+            }
           } catch (e) {
             console.warn('[Reader] Failed to bind page events:', e);
           }
@@ -434,7 +460,9 @@ export default function Reader() {
 
         // 监听高亮点击（使用最新 store 快照，避免闭包拿到初始 highlights）
         rendition.on('markClicked', (cfiRange: string, data: any) => {
-          const hl = useAppStore.getState().highlights.find(h => h.cfiRange === cfiRange);
+          // 同一位置可能同时有「划线」和「想法」两条，优先匹配带想法的
+          const candidates = useAppStore.getState().highlights.filter(h => h.cfiRange === cfiRange);
+          const hl = candidates.find(h => h.note && h.note.trim().length > 0) || candidates[0];
           if (hl) {
             // 锁定遮罩 800ms，防止 iOS tap 的后续 click 立刻关掉弹窗
             noteDialogLockRef.current = true;
@@ -558,10 +586,26 @@ export default function Reader() {
               walkToc(tocItems);
               console.log('[Reader] toc page map size:', Object.keys(map).length, 'of', tocCounter);
 
+              // 书签页码：按书签所在章节累计字符估算
+              const bmMap: Record<string, number> = {};
+              try {
+                useAppStore.getState().bookmarks
+                  .filter(b => b.bookId === bookId)
+                  .forEach(b => {
+                    const section = spine.find((s: any) => normHref(s.href) === normHref(b.chapterHref));
+                    if (section && cumByHref[section.href] !== undefined) {
+                      bmMap[b.id] = Math.floor(cumByHref[section.href] / charsPerPage) + 1;
+                    }
+                  });
+              } catch (e) {
+                console.warn('[Reader] bookmark page calc failed:', e);
+              }
+
               console.log('[Reader] computed total pages:', total, 'chars:', totalChars);
               if (!destroyed) {
                 setTotalPages(total);
                 setTocPageMap(map);
+                setBookmarkPageMap(bmMap);
                 setGeneratingPages(false);
               }
             };
@@ -669,7 +713,7 @@ export default function Reader() {
         'font-family': fontStack + ' !important',
         'font-size': `${settings.fontSize}px !important`,
         'line-height': `${settings.lineHeight} !important`,
-        'padding': '24px 56px 34px 56px !important',
+        'padding': `32px ${settings.pageMargin ?? 32}px 40px ${settings.pageMargin ?? 32}px !important`,
         'margin': '0 auto !important',
       },
       // 所有元素继承 body 的字号/行高/字体，确保字号调节真正生效
@@ -697,15 +741,14 @@ export default function Reader() {
     });
     rendition.themes.select('custom');
 
-    // 用内联样式直接设置 body 的左右内边距（内联样式优先级最高，确保边距真正生效）
+    // 已渲染的正文也立即套用新边距（内联样式，高于电子书自身 CSS）
     try {
       const contents = rendition.getContents?.() || [];
       contents.forEach((c: any) => {
-        c.css?.('padding', '24px 56px 34px 56px', true);
-        c.css?.('margin', '0', true);
+        applyPagePaddingRef.current?.(c?.document);
       });
     } catch (e) {
-      console.warn('[Reader] Set padding failed:', e);
+      console.warn('[Reader] Re-apply padding failed:', e);
     }
   }, [settings]);
 
@@ -1158,6 +1201,7 @@ export default function Reader() {
         }}
         onDeleteBookmark={removeBookmark}
         tocPageMap={tocPageMap}
+        bookmarkPageMap={bookmarkPageMap}
       />
 
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />

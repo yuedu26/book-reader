@@ -20,6 +20,7 @@ const defaultSettings: ReadingSettings = {
   theme: 'white',
   lineHeight: 1.8,
   pageMode: 'paginated',
+  pageMargin: 32,
 };
 
 const STORAGE_KEY = 'reader_pwa_data';

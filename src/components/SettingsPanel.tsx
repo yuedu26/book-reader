@@ -109,6 +109,25 @@ export default function SettingsPanel({ open, onClose }: Props) {
             </div>
           </div>
 
+          {/* Page margin */}
+          <div className="settings-section">
+            <div className="settings-label">左右页边距</div>
+            <div className="settings-row">
+              <span style={{ fontSize: 12 }}>窄</span>
+              <input
+                type="range"
+                className="settings-slider"
+                min={16}
+                max={64}
+                step={2}
+                value={settings.pageMargin ?? 32}
+                onChange={e => updateSettings({ pageMargin: Number(e.target.value) })}
+              />
+              <span style={{ fontSize: 12 }}>宽</span>
+              <span className="settings-value">{settings.pageMargin ?? 32}px</span>
+            </div>
+          </div>
+
           {/* Page mode */}
           <div className="settings-section">
             <div className="settings-label">翻页模式</div>

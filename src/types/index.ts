@@ -75,6 +75,7 @@ export interface ReadingSettings {
   theme: ThemeName;
   lineHeight: number;
   pageMode: 'paginated' | 'scrolled';
+  pageMargin: number; // 左右页边距（px），默认 32
 }
 
 // 备份数据
