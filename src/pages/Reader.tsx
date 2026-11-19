@@ -740,8 +740,8 @@ export default function Reader() {
         'font-family': fontStack + ' !important',
         'font-size': 'inherit !important',
         'line-height': 'inherit !important',
-        // 允许选中文字，同时抑制 iOS 长按弹出的原生系统菜单
-        '-webkit-touch-callout': 'none !important',
+        // 允许长按选中文字（注意：iOS 上 callout:none 会连文本选择一起禁用，所以必须保持 default）
+        '-webkit-touch-callout': 'default !important',
         '-webkit-user-select': 'text !important',
         'user-select': 'text !important',
       },
@@ -1198,7 +1198,7 @@ export default function Reader() {
         </div>
       )}
 
-      {/* Selection popup */}
+      {/* Selection popup：固定在屏幕底部，避开 iOS 原生选择菜单 */}
       {selectionPopup && (
         <TextSelectionPopup
           y={selectionPopup.y}

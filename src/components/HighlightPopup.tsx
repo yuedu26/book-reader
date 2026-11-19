@@ -15,13 +15,10 @@ export default function TextSelectionPopup({
   y, text, isSingleWord,
   onCopy, onHighlight, onNote, onLookup, onClose,
 }: Props) {
-  // 弹条水平居中（CSS left:0/right:0/margin:auto），这里只做竖直方向的边界钳制
-  const viewportH = typeof window !== 'undefined' ? window.innerHeight : 800;
-  const top = Math.min(Math.max(y, 8), viewportH - 120);
-
+  // 工具条固定在屏幕底部：iOS 原生选择菜单贴着选中文字出现，底部固定可避开它，互不遮挡
   return (
     <>
-      <div className="text-selection-popup" style={{ top }}>
+      <div className="text-selection-popup" style={{ bottom: 'calc(24px + env(safe-area-inset-bottom, 0px))', top: 'auto' }}>
         <div className="popup-actions-row">
           <button className="popup-action-btn" onClick={onCopy} title="复制">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

@@ -125,7 +125,7 @@ export default function SettingsPanel({ open, onClose }: Props) {
             <div className="settings-row">
               <button
                 className="font-step-btn"
-                onClick={() => updateSettings({ pageMargin: Math.max(16, (settings.pageMargin ?? 32) - 4) })}
+                onClick={() => updateSettings({ pageMargin: Math.max(16, (settings.pageMargin ?? 32) - 2) })}
                 title="减小页边距"
               >−</button>
               <input
@@ -139,7 +139,7 @@ export default function SettingsPanel({ open, onClose }: Props) {
               />
               <button
                 className="font-step-btn"
-                onClick={() => updateSettings({ pageMargin: Math.min(64, (settings.pageMargin ?? 32) + 4) })}
+                onClick={() => updateSettings({ pageMargin: Math.min(64, (settings.pageMargin ?? 32) + 2) })}
                 title="增大页边距"
               >＋</button>
               <span className="settings-value">{settings.pageMargin ?? 32}px</span>

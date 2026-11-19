@@ -278,9 +278,11 @@ a { color: var(--primary); text-decoration: none; }
   border: none !important;
 }
 
-/* 允许在 iframe 内选中文本（单词/整段/整页），同时抑制 iOS 长按原生菜单 */
+/* 允许在 iframe 内选中文本（单词/整段/整页）
+   注意：iOS 上 callout:none 会连文本选择一起禁用，所以保持 default，
+   原生菜单靠「把我们的工具条固定在屏幕底部」来避开，不影响工具条使用 */
 .reader-viewer iframe {
-  -webkit-touch-callout: none;
+  -webkit-touch-callout: default;
   -webkit-user-select: text;
   user-select: text;
 }
@@ -464,6 +466,16 @@ a { color: var(--primary); text-decoration: none; }
 .toc-item:active { background: rgba(0,0,0,0.04); }
 .toc-item.active { color: var(--primary); font-weight: 600; }
 .toc-item.level-1 { padding-left: 36px; font-size: 14px; }
+
+/* 有书签的章节：整体突出 */
+.toc-item.has-bookmark {
+  color: var(--primary);
+  font-weight: 600;
+  background: rgba(0, 122, 255, 0.06);
+  border-radius: 8px;
+  margin: 0 8px;
+  padding-left: 12px;
+}
 
 /* 目录内嵌书签条目 */
 .toc-bookmark {

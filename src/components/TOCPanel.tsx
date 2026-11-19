@@ -34,12 +34,13 @@ export default function TOCPanel({
 
   const renderItem = (item: Chapter, level = 0) => {
     const bms = bookmarksOf(item.href);
+    const hasBookmark = bms.length > 0;
     return (
       <React.Fragment key={item.href}>
         <button
           className={`toc-item ${level > 0 ? `level-${level}` : ''} ${
             normHref(currentHref) === normHref(item.href) ? 'active' : ''
-          }`}
+          } ${hasBookmark ? 'has-bookmark' : ''}`}
           onClick={() => onNavigate(item.href)}
         >
           <span className="toc-item-label">{item.label}</span>
