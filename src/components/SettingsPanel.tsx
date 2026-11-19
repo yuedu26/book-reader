@@ -96,6 +96,11 @@ export default function SettingsPanel({ open, onClose }: Props) {
           <div className="settings-section">
             <div className="settings-label">行高</div>
             <div className="settings-row">
+              <button
+                className="font-step-btn"
+                onClick={() => updateSettings({ lineHeight: Math.max(1.2, Math.round((settings.lineHeight - 0.1) * 10) / 10) })}
+                title="减小行高"
+              >−</button>
               <input
                 type="range"
                 className="settings-slider"
@@ -105,6 +110,11 @@ export default function SettingsPanel({ open, onClose }: Props) {
                 value={settings.lineHeight}
                 onChange={e => updateSettings({ lineHeight: Number(e.target.value) })}
               />
+              <button
+                className="font-step-btn"
+                onClick={() => updateSettings({ lineHeight: Math.min(3, Math.round((settings.lineHeight + 0.1) * 10) / 10) })}
+                title="增大行高"
+              >＋</button>
               <span className="settings-value">{settings.lineHeight.toFixed(1)}</span>
             </div>
           </div>
@@ -113,7 +123,11 @@ export default function SettingsPanel({ open, onClose }: Props) {
           <div className="settings-section">
             <div className="settings-label">左右页边距</div>
             <div className="settings-row">
-              <span style={{ fontSize: 12 }}>窄</span>
+              <button
+                className="font-step-btn"
+                onClick={() => updateSettings({ pageMargin: Math.max(16, (settings.pageMargin ?? 32) - 4) })}
+                title="减小页边距"
+              >−</button>
               <input
                 type="range"
                 className="settings-slider"
@@ -123,7 +137,11 @@ export default function SettingsPanel({ open, onClose }: Props) {
                 value={settings.pageMargin ?? 32}
                 onChange={e => updateSettings({ pageMargin: Number(e.target.value) })}
               />
-              <span style={{ fontSize: 12 }}>宽</span>
+              <button
+                className="font-step-btn"
+                onClick={() => updateSettings({ pageMargin: Math.min(64, (settings.pageMargin ?? 32) + 4) })}
+                title="增大页边距"
+              >＋</button>
               <span className="settings-value">{settings.pageMargin ?? 32}px</span>
             </div>
           </div>

@@ -465,6 +465,62 @@ a { color: var(--primary); text-decoration: none; }
 .toc-item.active { color: var(--primary); font-weight: 600; }
 .toc-item.level-1 { padding-left: 36px; font-size: 14px; }
 
+/* 目录内嵌书签条目 */
+.toc-bookmark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 12px 6px 28px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+}
+
+.toc-bookmark-icon {
+  color: var(--primary);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.toc-bookmark-main {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.toc-bookmark-firstline {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toc-bookmark-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.toc-bookmark-delete {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+.toc-bookmark-delete svg { width: 14px; height: 14px; }
+
 /* ===== Settings Panel ===== */
 .settings-section {
   padding: 16px 20px;

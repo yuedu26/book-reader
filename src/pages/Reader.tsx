@@ -55,6 +55,7 @@ export default function Reader() {
   const book = useAppStore(s => s.books.find(b => b.id === bookId));
   const updateBook = useAppStore(s => s.updateBook);
   const settings = useAppStore(s => s.settings);
+  const updateSettings = useAppStore(s => s.updateSettings);
   const addReadingTime = useAppStore(s => s.addReadingTime);
   const highlights = useAppStore(s => s.highlights.filter(h => h.bookId === bookId));
   const addHighlight = useAppStore(s => s.addHighlight);
@@ -145,6 +146,19 @@ export default function Reader() {
         ]);
         console.log('[Reader] Book ready');
         if (destroyed) return;
+
+        // 英文书首次打开时，应用更适合英文阅读的默认排版
+        try {
+          const meta = (bookInstance as any).package?.metadata;
+          const lang = String(meta?.language || '').toLowerCase();
+          const isEnglish = lang.startsWith('en');
+          const isFirstOpen = !book?.currentLocation || (book?.progress ?? 0) === 0;
+          if (isEnglish && isFirstOpen) {
+            updateSettings({ fontSize: 20, lineHeight: 1.6, pageMargin: 32, theme: 'green' });
+          }
+        } catch (e) {
+          console.warn('[Reader] Apply English defaults failed:', e);
+        }
 
         // 获取目录
         let tocItems: Chapter[] = [];
@@ -764,9 +778,14 @@ export default function Reader() {
         try {
           const r = renditionRef.current;
           if (!r) return;
-          // 更新 epub.js 的 gap（左右内边距 = gap/2），再 resize 让新布局生效
+          // 更新 epub.js 的 gap（左右内边距 = gap/2）
           if (r.manager?.settings) {
             r.manager.settings.gap = (settings.pageMargin ?? 32) * 2;
+          }
+          // 关键：epub.js 的 manager.resize 在尺寸不变时会直接 return（不重新布局），
+          // 清空 _stageSize 强制它重新走 updateLayout，gap 改动才会生效。
+          if (r.manager) {
+            (r.manager as any)._stageSize = undefined;
           }
           r.resize(window.innerWidth, window.innerHeight);
         } catch (e) {

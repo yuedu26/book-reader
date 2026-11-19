@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { formatRelativeTime } from '../utils';
-import { TrashIcon } from './Icons';
+import { TrashIcon, BookmarkIcon } from './Icons';
 import type { Chapter, Bookmark } from '../types';
 
 interface Props {
@@ -21,31 +21,58 @@ export default function TOCPanel({
   bookmarks, onNavigateBookmark, onDeleteBookmark,
   tocPageMap, bookmarkPageMap,
 }: Props) {
-  const [tab, setTab] = useState<'toc' | 'bookmarks'>('toc');
-
-  // 规范化 href，用于匹配当前阅读章节
+  // 规范化 href，用于匹配当前阅读章节 / 书签所属章节
   const normHref = (h: string) => {
     let s = (h || '').split('#')[0].split('?')[0];
     s = s.split('/').pop() || s;
     return s.trim().toLowerCase();
   };
 
-  const renderItem = (item: Chapter, level = 0) => (
-    <React.Fragment key={item.href}>
-      <button
-        className={`toc-item ${level > 0 ? `level-${level}` : ''} ${
-          normHref(currentHref) === normHref(item.href) ? 'active' : ''
-        }`}
-        onClick={() => onNavigate(item.href)}
-      >
-        <span className="toc-item-label">{item.label}</span>
-        {tocPageMap?.[item.href] ? (
-          <span className="toc-item-page">{tocPageMap[item.href]}</span>
-        ) : null}
-      </button>
-      {item.subitems?.map(sub => renderItem(sub, level + 1))}
-    </React.Fragment>
-  );
+  // 书签按所属章节归类
+  const bookmarksOf = (href: string) =>
+    bookmarks.filter(bm => normHref(bm.chapterHref) === normHref(href));
+
+  const renderItem = (item: Chapter, level = 0) => {
+    const bms = bookmarksOf(item.href);
+    return (
+      <React.Fragment key={item.href}>
+        <button
+          className={`toc-item ${level > 0 ? `level-${level}` : ''} ${
+            normHref(currentHref) === normHref(item.href) ? 'active' : ''
+          }`}
+          onClick={() => onNavigate(item.href)}
+        >
+          <span className="toc-item-label">{item.label}</span>
+          {tocPageMap?.[item.href] ? (
+            <span className="toc-item-page">{tocPageMap[item.href]}</span>
+          ) : null}
+        </button>
+
+        {/* 该书签章节下挂的书签条目 */}
+        {bms.map(bm => (
+          <div key={bm.id} className="toc-bookmark">
+            <span className="toc-bookmark-icon"><BookmarkIcon size={14} /></span>
+            <div className="toc-bookmark-main" onClick={() => onNavigateBookmark(bm.cfi)}>
+              <div className="toc-bookmark-firstline">{bm.firstLine || '书签'}</div>
+              <div className="toc-bookmark-meta">
+                {bookmarkPageMap?.[bm.id] ? `P${bookmarkPageMap[bm.id]} · ` : ''}
+                {formatRelativeTime(bm.createdAt)}
+              </div>
+            </div>
+            <button
+              className="toc-bookmark-delete"
+              onClick={() => onDeleteBookmark(bm.id)}
+              title="删除书签"
+            >
+              <TrashIcon />
+            </button>
+          </div>
+        ))}
+
+        {item.subitems?.map(sub => renderItem(sub, level + 1))}
+      </React.Fragment>
+    );
+  };
 
   return (
     <>
@@ -53,42 +80,17 @@ export default function TOCPanel({
       <div className={`side-panel ${open ? 'open' : ''}`}>
         <div className="side-panel-header">
           <div className="panel-tabs">
-            <button className={`panel-tab ${tab === 'toc' ? 'active' : ''}`} onClick={() => setTab('toc')}>目录</button>
-            <button className={`panel-tab ${tab === 'bookmarks' ? 'active' : ''}`} onClick={() => setTab('bookmarks')}>书签</button>
+            <button className="panel-tab active">目录</button>
           </div>
           <button className="toolbar-btn" onClick={onClose}>✕</button>
         </div>
         <div className="side-panel-body">
-          {tab === 'toc' ? (
-            toc.length === 0 ? (
-              <div style={{ padding: 20, color: 'var(--text-muted)', textAlign: 'center' }}>
-                暂无目录
-              </div>
-            ) : (
-              toc.map(item => renderItem(item))
-            )
-          ) : bookmarks.length === 0 ? (
+          {toc.length === 0 ? (
             <div style={{ padding: 20, color: 'var(--text-muted)', textAlign: 'center' }}>
-              暂无书签
+              暂无目录
             </div>
           ) : (
-            [...bookmarks].sort((a, b) => b.createdAt - a.createdAt).map(bm => (
-              <div key={bm.id} className="bookmark-item">
-                <div className="bookmark-info" onClick={() => onNavigateBookmark(bm.cfi)}>
-                  <div className="bookmark-chapter">
-                    {bm.chapterTitle || '未知章节'}
-                    {bookmarkPageMap?.[bm.id] ? (
-                      <span className="bookmark-page">P{bookmarkPageMap[bm.id]}</span>
-                    ) : null}
-                  </div>
-                  {bm.firstLine && <div className="bookmark-firstline">“{bm.firstLine}”</div>}
-                  <div className="bookmark-date">{formatRelativeTime(bm.createdAt)}</div>
-                </div>
-                <button className="bookmark-delete" onClick={() => onDeleteBookmark(bm.id)} title="删除">
-                  <TrashIcon />
-                </button>
-              </div>
-            ))
+            toc.map(item => renderItem(item))
           )}
         </div>
       </div>
