@@ -363,9 +363,10 @@ export default function Reader() {
             const width = window.innerWidth;
             if (!width) return;
             setSelectionPopup(null);
-            if (screenX < width * 0.25) {
+            // 翻页热区扩大（左右各 40%），方便左手单手操作
+            if (screenX < width * 0.4) {
               rendition.prev();
-            } else if (screenX > width * 0.75) {
+            } else if (screenX > width * 0.6) {
               if (atEndRef.current) {
                 // 已到最后一页，继续后翻 → 显示读完完成页
                 finishedRef.current = true;
@@ -379,22 +380,47 @@ export default function Reader() {
             }
           };
 
+          // 下一页（含读完完成页逻辑）
+          const doNextPage = () => {
+            if (atEndRef.current) {
+              finishedRef.current = true;
+              setFinishedOpen(true);
+              if (bookId) updateBook(bookId, { progress: 1, lastReadAt: Date.now() });
+            } else {
+              rendition.next();
+            }
+          };
+
           if (isTouchDevice) {
             let touchStartX = 0;
             let touchStartY = 0;
+            let touchStartTime = 0;
             doc.addEventListener('touchstart', (ev: TouchEvent) => {
               const touch = ev.touches[0];
               touchStartX = touch.clientX;
               touchStartY = touch.clientY;
+              touchStartTime = Date.now();
             }, { passive: true });
 
             doc.addEventListener('touchend', (ev: TouchEvent) => {
               const sel = win?.getSelection?.()?.toString?.();
               if (sel && sel.trim().length > 0) return;
               const touch = ev.changedTouches[0];
-              const deltaX = Math.abs(touch.clientX - touchStartX);
-              const deltaY = Math.abs(touch.clientY - touchStartY);
-              if (deltaX < 10 && deltaY < 10) {
+              const dx = touch.clientX - touchStartX;
+              const dy = touch.clientY - touchStartY;
+              const absDx = Math.abs(dx);
+              const absDy = Math.abs(dy);
+              const elapsed = Date.now() - touchStartTime;
+
+              // 轻划翻页：水平位移 >= 30px、垂直位移 < 60px，动作干脆（<= 600ms）
+              if (absDx >= 30 && absDy < 60 && elapsed <= 600) {
+                setSelectionPopup(null);
+                if (dx < 0) doNextPage();       // 左滑 → 下一页
+                else rendition.prev();           // 右滑 → 上一页
+                return;
+              }
+              // 点击翻页
+              if (absDx < 10 && absDy < 10) {
                 handleTap(touch.clientX);
               }
             }, { passive: true });

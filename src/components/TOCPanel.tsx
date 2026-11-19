@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { formatRelativeTime } from '../utils';
 import { TrashIcon, BookmarkIcon } from './Icons';
 import type { Chapter, Bookmark } from '../types';
@@ -21,33 +21,72 @@ export default function TOCPanel({
   bookmarks, onNavigateBookmark, onDeleteBookmark,
   tocPageMap, bookmarkPageMap,
 }: Props) {
-  // 规范化 href，用于匹配当前阅读章节 / 书签所属章节
+  // 默认全部展开；记录被折叠的节点
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
   const normHref = (h: string) => {
     let s = (h || '').split('#')[0].split('?')[0];
     s = s.split('/').pop() || s;
     return s.trim().toLowerCase();
   };
 
-  // 书签按所属章节归类
   const bookmarksOf = (href: string) =>
     bookmarks.filter(bm => normHref(bm.chapterHref) === normHref(href));
+
+  const toggleCollapse = (href: string) => {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      if (next.has(href)) next.delete(href);
+      else next.add(href);
+      return next;
+    });
+  };
 
   const renderItem = (item: Chapter, level = 0) => {
     const bms = bookmarksOf(item.href);
     const hasBookmark = bms.length > 0;
+    const hasChildren = !!(item.subitems && item.subitems.length > 0);
+    const isCollapsed = collapsed.has(item.href);
+    const isCurrent = normHref(currentHref) === normHref(item.href);
+
     return (
       <React.Fragment key={item.href}>
-        <button
-          className={`toc-item ${level > 0 ? `level-${level}` : ''} ${
-            normHref(currentHref) === normHref(item.href) ? 'active' : ''
-          } ${hasBookmark ? 'has-bookmark' : ''}`}
-          onClick={() => onNavigate(item.href)}
-        >
-          <span className="toc-item-label">{item.label}</span>
-          {tocPageMap?.[item.href] ? (
-            <span className="toc-item-page">{tocPageMap[item.href]}</span>
-          ) : null}
-        </button>
+        <div className={`toc-row ${isCurrent ? 'toc-row-current' : ''}`}>
+          {/* 折叠箭头 */}
+          {hasChildren ? (
+            <button
+              className={`toc-toggle ${isCollapsed ? 'collapsed' : ''}`}
+              onClick={(e) => { e.stopPropagation(); toggleCollapse(item.href); }}
+              title={isCollapsed ? '展开' : '收起'}
+            >
+              ▾
+            </button>
+          ) : (
+            <span className="toc-toggle-placeholder" />
+          )}
+
+          <button
+            className={`toc-item ${level > 0 ? `level-${level}` : ''} ${
+              isCurrent ? 'active' : ''
+            } ${hasBookmark ? 'has-bookmark' : ''}`}
+            onClick={() => onNavigate(item.href)}
+          >
+            <span className="toc-item-label">{item.label}</span>
+            {tocPageMap?.[item.href] ? (
+              <span className="toc-item-page">{tocPageMap[item.href]}</span>
+            ) : null}
+          </button>
+        </div>
+
+        {/* 当前读到的位置标记 */}
+        {isCurrent && (
+          <div className="toc-current">
+            <span className="toc-current-label">📖 当前读到</span>
+            {tocPageMap?.[item.href] ? (
+              <span className="toc-current-page">P{tocPageMap[item.href]}</span>
+            ) : null}
+          </div>
+        )}
 
         {/* 该书签章节下挂的书签条目 */}
         {bms.map(bm => (
@@ -70,7 +109,7 @@ export default function TOCPanel({
           </div>
         ))}
 
-        {item.subitems?.map(sub => renderItem(sub, level + 1))}
+        {hasChildren && !isCollapsed && item.subitems!.map(sub => renderItem(sub, level + 1))}
       </React.Fragment>
     );
   };

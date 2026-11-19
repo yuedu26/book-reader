@@ -433,12 +433,43 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 /* TOC list */
+.toc-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.toc-toggle {
+  width: 28px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 12px 0;
+  transition: transform 0.15s ease;
+}
+
+.toc-toggle.collapsed {
+  transform: rotate(-90deg);
+}
+
+.toc-toggle-placeholder {
+  width: 28px;
+  flex-shrink: 0;
+}
+
 .toc-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex: 1;
   width: 100%;
-  padding: 12px 20px;
+  padding: 12px 20px 12px 0;
   text-align: left;
   border: none;
   background: none;
@@ -467,14 +498,33 @@ a { color: var(--primary); text-decoration: none; }
 .toc-item.active { color: var(--primary); font-weight: 600; }
 .toc-item.level-1 { padding-left: 36px; font-size: 14px; }
 
-/* 有书签的章节：整体突出 */
+/* 有书签的章节：标题加粗即可（不改颜色），书签行本身变色突出 */
 .toc-item.has-bookmark {
-  color: var(--primary);
-  font-weight: 600;
-  background: rgba(0, 122, 255, 0.06);
+  font-weight: 700;
+}
+
+/* 当前读到位置 */
+.toc-current {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 2px 12px 6px 28px;
+  padding: 8px 10px;
   border-radius: 8px;
-  margin: 0 8px;
-  padding-left: 12px;
+  background: rgba(52, 199, 89, 0.1);
+  border: 1px dashed rgba(52, 199, 89, 0.5);
+}
+
+.toc-current-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2f9e50;
+}
+
+.toc-current-page {
+  font-size: 12px;
+  color: #2f9e50;
+  font-weight: 500;
 }
 
 /* 目录内嵌书签条目 */
@@ -504,7 +554,9 @@ a { color: var(--primary); text-decoration: none; }
 
 .toc-bookmark-firstline {
   font-size: 13px;
-  color: var(--text);
+  /* 书签行文字变色突出 */
+  color: var(--primary);
+  font-weight: 500;
   line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -654,9 +706,11 @@ a { color: var(--primary); text-decoration: none; }
   margin: 0 auto;
   width: fit-content;
   max-width: calc(100vw - 16px);
-  background: var(--card-bg);
+  /* 深色半透明工具条（参考微信读书），与阅读区形成层次 */
+  background: rgba(38, 42, 46, 0.96);
+  color: #fff;
   border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25);
   padding: 8px;
   display: flex;
   flex-direction: column;
@@ -682,7 +736,7 @@ a { color: var(--primary); text-decoration: none; }
   padding: 8px 12px;
   border: none;
   background: none;
-  color: var(--text);
+  color: #fff;
   cursor: pointer;
   border-radius: 8px;
   transition: background 0.2s;
@@ -690,11 +744,11 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .popup-action-btn:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .popup-action-btn:active {
-  background: rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .popup-action-btn svg {
