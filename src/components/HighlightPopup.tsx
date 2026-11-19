@@ -18,7 +18,7 @@ export default function TextSelectionPopup({
   // 工具条出现在选中位置附近，但与选中处留足间距（约 96px），
   // 这样即使 iOS 原生选择菜单冒出来，也不会挡住我们的工具条。
   const viewportH = typeof window !== 'undefined' ? window.innerHeight : 800;
-  const GAP = 96;
+  const GAP = 64;
   let top = y + GAP;
   if (top + 130 > viewportH) {
     // 下方空间不够，改放到选中处上方

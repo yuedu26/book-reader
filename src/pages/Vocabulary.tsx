@@ -10,7 +10,7 @@ import {
 
 export default function NotesPage() {
   const navigate = useNavigate();
-  const [view, setView] = useState<'books' | 'all'>('books');
+  const [view, setView] = useState<'books' | 'all' | 'words'>('books');
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<'marks' | 'notes' | 'vocab'>('marks');
   const [copied, setCopied] = useState(false);
@@ -101,9 +101,38 @@ export default function NotesPage() {
           <button className={`notes-tab ${view === 'all' ? 'active' : ''}`} onClick={() => setView('all')}>
             全部笔记
           </button>
+          <button className={`notes-tab ${view === 'words' ? 'active' : ''}`} onClick={() => setView('words')}>
+            全部单词
+          </button>
         </div>
 
-        {view === 'all' ? (
+        {view === 'words' ? (
+          vocabulary.length === 0 ? (
+            <div className="empty-state">
+              <VocabIcon />
+              <p>还没有生词</p>
+              <small>阅读时选中英文单词即可记录</small>
+            </div>
+          ) : (
+            <div className="notes-all-list">
+              {[...vocabulary].sort((a, b) => b.createdAt - a.createdAt).slice(0, 300).map(w => (
+                <div key={w.id} className="note-item">
+                  <div className="note-item-main" onClick={() => goTo(w.bookId, '')}>
+                    <div className="note-book-tag">{bookTitle(w.bookId)}</div>
+                    <div className="note-word-tag">{w.word}</div>
+                    {w.context && <div className="note-context">“{w.context}”</div>}
+                    <div className="note-date">
+                      复习 {w.reviewCount} 次 · {formatRelativeTime(w.createdAt)}
+                    </div>
+                  </div>
+                  <button className="note-delete" onClick={() => removeWord(w.id)} title="删除">
+                    <TrashIcon />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )
+        ) : view === 'all' ? (
           allMarks.length === 0 ? (
             <div className="empty-state">
               <VocabIcon />

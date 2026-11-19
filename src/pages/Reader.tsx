@@ -5,7 +5,7 @@ import { useAppStore, themeMap } from '../stores';
 import { getEpubFile } from '../services/db';
 import { generateId, copyTextToClipboard } from '../utils';
 import {
-  ChevronLeftIcon, ChevronRightIcon, CloseIcon,
+  ChevronLeftIcon, ChevronRightIcon, CloseIcon, MoreIcon,
   ListIcon, SettingsIcon, BookmarkIcon, BookmarkFilledIcon,
   NoteIcon,
 } from '../components/Icons';
@@ -91,6 +91,7 @@ export default function Reader() {
   } | null>(null);
   const [atEnd, setAtEnd] = useState(false); // 是否在全书最后一页
   const [finishedOpen, setFinishedOpen] = useState(false); // 读完完成页
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false); // 右上角更多菜单
 
   const noteDialogLockRef = useRef(false); // 批注弹窗打开后短暂锁定遮罩，防止 iOS tap 的后续 click 立刻关掉它
   const noteDialogLockTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -462,6 +463,31 @@ export default function Reader() {
           doc.addEventListener('touchend', (ev: TouchEvent) => {
             const sel = win?.getSelection?.()?.toString?.();
             if (sel && sel.trim().length > 0) scheduleSelectionPopup(450);
+          }, { passive: true });
+
+          // 选择范围变化（拖动手柄）时重置计时器：手指还按着/范围还在变，就不弹工具条
+          doc.addEventListener('selectionchange', () => {
+            if (selectionTimer) clearTimeout(selectionTimer);
+            const sel = win?.getSelection?.();
+            if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) {
+              scheduleSelectionPopup(450);
+            }
+          });
+
+          // 跨页选择：当选择已延伸到屏幕底部、手指仍在拖动时，切换为滑动模式继续选
+          let switchedToScroll = false;
+          doc.addEventListener('touchmove', (ev: TouchEvent) => {
+            if (switchedToScroll) return;
+            const sel = win?.getSelection?.();
+            if (!sel || sel.isCollapsed) return;
+            try {
+              const range = sel.getRangeAt(0);
+              const rect = range.getBoundingClientRect();
+              if (rect.bottom >= window.innerHeight - 90) {
+                switchedToScroll = true;
+                window.dispatchEvent(new CustomEvent('reader-switch-to-scroll'));
+              }
+            } catch {}
           }, { passive: true });
         };
 
@@ -862,6 +888,16 @@ export default function Reader() {
     }
   }, [settings.pageMode]);
 
+  // 跨页选择：正文里选到屏幕底部继续拖时，自动切到滑动模式（选择可跨多屏）
+  useEffect(() => {
+    const handler = () => {
+      if (useAppStore.getState().settings.pageMode === 'scrolled') return;
+      updateSettings({ pageMode: 'scrolled' });
+    };
+    window.addEventListener('reader-switch-to-scroll', handler as EventListener);
+    return () => window.removeEventListener('reader-switch-to-scroll', handler as EventListener);
+  }, [updateSettings]);
+
   // Navigate prev/next
   const goPrev = () => renditionRef.current?.prev();
   const goNext = () => {
@@ -1174,16 +1210,23 @@ export default function Reader() {
       {/* Top toolbar */}
       <div className={`reader-toolbar reader-toolbar-top ${!showToolbar ? 'toolbar-hidden-top' : ''}`}>
         <button className="toolbar-btn" onClick={() => navigate('/')}>
-          <CloseIcon />
+          <ChevronLeftIcon />
         </button>
         <div className="chapter-title-bar">{currentChapterTitle || book.title}</div>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <button className="toolbar-btn" onClick={() => setNotesOpen(true)} title="想法">
-            <NoteIcon />
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <button className="toolbar-btn" onClick={() => setMoreMenuOpen(prev => !prev)} title="更多">
+            <MoreIcon />
           </button>
-          <button className="toolbar-btn" onClick={() => setSettingsOpen(true)}>
-            <SettingsIcon />
-          </button>
+          {moreMenuOpen && (
+            <div className="reader-more-menu" onClick={e => e.stopPropagation()}>
+              <button className="reader-more-item" onClick={() => { setMoreMenuOpen(false); setSettingsOpen(true); }}>
+                <SettingsIcon /> 阅读设置
+              </button>
+              <button className="reader-more-item" onClick={() => { setMoreMenuOpen(false); setNotesOpen(true); }}>
+                <NoteIcon /> 想法
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1217,16 +1260,10 @@ export default function Reader() {
         <button className="toolbar-btn" onClick={() => setTocOpen(true)}>
           <ListIcon />
         </button>
-        <button className="nav-btn" onClick={goPrev}>
-          <ChevronLeftIcon />
-        </button>
         <span className="progress-text">
           {toolbarTotal > 0 ? `${toolbarPage} / ${toolbarTotal}` : (generatingPages ? '…' : '')}
         </span>
         <span className="progress-percent">{progressPercent}%</span>
-        <button className="nav-btn" onClick={goNext}>
-          <ChevronRightIcon />
-        </button>
         <button className="toolbar-btn" onClick={toggleBookmark}>
           {bookmarks.some(b => b.cfi === book.currentLocation)
             ? <BookmarkFilledIcon />
