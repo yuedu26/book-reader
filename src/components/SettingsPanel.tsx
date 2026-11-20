@@ -26,7 +26,6 @@ export default function SettingsPanel({ open, onClose }: Props) {
       <div className={`side-panel side-panel-right ${open ? 'open' : ''}`}>
         <div className="side-panel-header">
           <h2>阅读设置</h2>
-          <button className="toolbar-btn" onClick={onClose}>✕</button>
         </div>
         <div className="side-panel-body">
           {/* Font size */}
