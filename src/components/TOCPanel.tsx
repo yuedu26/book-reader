@@ -72,9 +72,8 @@ export default function TOCPanel({
             onClick={() => onNavigate(item.href)}
           >
             <span className="toc-item-label">{item.label}</span>
-            {tocPageMap?.[item.href] ? (
-              <span className="toc-item-page">{tocPageMap[item.href]}</span>
-            ) : null}
+            {/* 始终渲染页码占位，保证每行结构一致、页码右对齐 */}
+            <span className="toc-item-page">{tocPageMap?.[item.href] ?? ''}</span>
           </button>
         </div>
 
