@@ -22,7 +22,9 @@ export default function TextSelectionPopup({
   // 3) 上下都不够 → 兜底放到屏幕 35% 高度处
   const viewportH = typeof window !== 'undefined' ? window.innerHeight : 800;
   const GAP_BELOW = 64;
-  const GAP_ABOVE = 150;
+  // iOS 原生菜单在选中文字上方约占「60px 间距 + 100px 高度 ≈ 160px」，
+  // 再留出工具条自身高度余量，实测需要 220px 才能完全不重叠
+  const GAP_ABOVE = 220;
   const TOOLBAR_H = 86;
   let top = y + GAP_BELOW;
   const fitsBelow = top + TOOLBAR_H <= viewportH;
