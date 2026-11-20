@@ -107,7 +107,7 @@ export default function Reader() {
   const moreMenuOpenRef = useRef(false); // 更多菜单是否打开（供 iframe 内点击判断）
   const toggleBookmarkRef = useRef<(() => void) | null>(null); // 供 iframe 下拉手势调用
   const lastSelectionActivityRef = useRef(0); // 最近一次选区活动时间（供 touchend 判断不翻页）
-  const savedSelectionRef = useRef<{ range: Range; doc: any; text: string } | null>(null); // 选区快照（供整段按钮）
+  const savedSelectionRef = useRef<{ range: Range; doc: any; text: string; cfiRange?: string } | null>(null); // 选区会话快照
   const selectionPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null); // 选择稳定轮询
   const readingStartRef = useRef(Date.now());
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -476,86 +476,22 @@ export default function Reader() {
             });
           }
 
-          // ===== 文本选择状态机 =====
-          // IDLE(无选区) → SELECTING(内容在变) → STABLE(稳定 700ms) → SHOWN(工具条已显示)
-          // 不依赖 touchstart/touchend：iOS 拖手柄时这些事件根本不触发，
-          // 只有选区内容本身是否在变，才是"用户还在调整"的最可靠信号。
-          let selState: 'IDLE' | 'SELECTING' | 'STABLE' | 'SHOWN' = 'IDLE';
-          let stableSince = 0;
-          let lastText = '';
-          let lastEmittedText = '';
-
-          const checkSelection = () => {
+          // ===== 兜底：记录选区活动时间 =====
+          // 主要逻辑已改用 epub.js 的 selected 事件（它内部已监听 selectionchange 并 250ms 防抖 + 生成 CFI）。
+          // 这里只保留一个极轻的轮询，用来维护 lastSelectionActivityRef（供 touchend 判断"别翻页"）。
+          // 之前的轮询会用 rendition.cfis（epub.js 中不存在）生成 CFI，永远失败，已移除。
+          if (selectionPollTimerRef.current) clearInterval(selectionPollTimerRef.current);
+          selectionPollTimerRef.current = setInterval(() => {
             try {
               const sel = win?.getSelection?.();
-              if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
-                selState = 'IDLE';
-                lastText = '';
-                stableSince = 0;
-                lastEmittedText = '';
-                return;
-              }
-              const text = sel.toString();
-              if (!text || text.trim().length === 0) {
-                selState = 'IDLE';
-                lastText = '';
-                stableSince = 0;
-                return;
-              }
-
-              // 有非空选区：记录活动时间（供 touchend 判断"别翻页"）
-              lastSelectionActivityRef.current = Date.now();
-
-              if (text !== lastText) {
-                // 选区内容变了 → 用户还在拖手柄调整
-                lastText = text;
-                stableSince = Date.now();
-                selState = 'SELECTING';
-                // 收起已弹出的工具条，避免挡手柄
-                if (lastEmittedText) {
-                  lastEmittedText = '';
-                  setSelectionPopup(null);
-                }
-                return;
-              }
-
-              if (stableSince === 0) {
-                stableSince = Date.now();
-                return;
-              }
-
-              // 稳定判定：700ms 内容不变才视为"选择结束"
-              if (selState === 'SELECTING') {
-                if (Date.now() - stableSince < 700) return;
-                selState = 'STABLE';
-              }
-
-              if (selState === 'STABLE' && text !== lastEmittedText) {
-                lastEmittedText = text;
-                // 保存选区快照，供「整段」按钮使用（不依赖实时 selection）
-                try {
-                  const liveRange = sel.getRangeAt(0);
-                  savedSelectionRef.current = {
-                    range: liveRange.cloneRange(),
-                    doc,
-                    text,
-                  };
-                } catch {
-                  savedSelectionRef.current = null;
-                }
-                const range = sel.getRangeAt(0);
-                const cfiRange = rendition.cfis?.fromRange(range);
-                if (cfiRange) {
-                  selState = 'SHOWN';
-                  rendition.emit('selected', cfiRange, text);
+              if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
+                const t = sel.toString();
+                if (t && t.trim().length > 0) {
+                  lastSelectionActivityRef.current = Date.now();
                 }
               }
             } catch {}
-          };
-
-          // 每个 document 启动一个轮询（绑定前先清掉旧的）
-          if (selectionPollTimerRef.current) clearInterval(selectionPollTimerRef.current);
-          selectionPollTimerRef.current = setInterval(checkSelection, 120);
+          }, 300);
         };
 
         // 直接对正文 body 设内联边距（内联 !important 优先级最高，确保边距真正生效）
@@ -585,33 +521,59 @@ export default function Reader() {
           }
         });
 
-        // 监听文本选择
+        // ===== 文本选择：基于 epub.js 自己的 selected 事件（它内部已监听 selectionchange + 250ms 防抖 + 生成 CFI） =====
+        // 我们只在它之上做「去抖」：连续触发时不断重置，稳定后才显示工具条。
+        // 之前自己写的轮询用 rendition.cfis（不存在）导致永远拿不到 CFI，属于无效代码。
+        let selectionShowTimer: ReturnType<typeof setTimeout> | null = null;
+
         rendition.on('selected', (cfiRange: string, contents: any) => {
           if (destroyed) return;
-          
-          console.log('[Reader] Selected event:', { cfiRange });
-          
-          // 从 range 中获取文本
-          let text = '';
-          const range = rendition.getRange(cfiRange);
-          if (range) {
-            text = range.toString();
-            console.log('[Reader] Text from range:', text);
-          }
-          
-          const trimmed = text.trim();
-          if (!trimmed) return;
 
-          const rect = range.getBoundingClientRect();
-          const viewerRect = container.getBoundingClientRect();
-          // 单个英文单词（可含连字符/撇号）才显示「查词」按钮
-          const isSingleWord = /^[A-Za-z]+(?:['’-][A-Za-z]+)*$/.test(trimmed);
-          setSelectionPopup({
-            y: rect.bottom - viewerRect.top + 8,
-            text: trimmed,
-            cfiRange,
-            isSingleWord,
-          });
+          const range = rendition.getRange(cfiRange);
+          if (!range) return;
+          const text = range.toString().trim();
+          if (!text) return;
+
+          // 1) 立即保存「选区会话」快照（供整段/划线/想法使用，不依赖后续实时 selection）
+          const ownerDoc =
+            range.commonAncestorContainer?.ownerDocument ||
+            range.startContainer?.ownerDocument ||
+            null;
+          lastSelectionActivityRef.current = Date.now();
+          savedSelectionRef.current = ownerDoc
+            ? { range: range.cloneRange(), doc: ownerDoc, text, cfiRange }
+            : null;
+
+          // 2) 选区变了 → 先收起已显示的工具条（只隐藏 UI，不清除选区、不阻断拖动）
+          setSelectionPopup(null);
+
+          // 3) 重新计时：稳定 1200ms 没有新的 selected 才显示工具条
+          if (selectionShowTimer) clearTimeout(selectionShowTimer);
+          selectionShowTimer = setTimeout(() => {
+            if (destroyed) return;
+            try {
+              // 显示前重新校验快照是否仍有效（节点仍在文档中）
+              const snap = savedSelectionRef.current;
+              if (!snap) return;
+              const node = snap.range.commonAncestorContainer;
+              if (!node || !snap.doc?.contains?.(node)) return;
+
+              const r = snap.range;
+              const rect = r.getBoundingClientRect();
+              if (!rect || (rect.width === 0 && rect.height === 0)) return;
+              const viewerRect = container.getBoundingClientRect();
+              // 单个英文单词（可含连字符/撇号）才显示「查词」按钮
+              const isSingleWord = /^[A-Za-z]+(?:['’-][A-Za-z]+)*$/.test(snap.text);
+              setSelectionPopup({
+                y: rect.bottom - viewerRect.top + 8,
+                text: snap.text,
+                cfiRange: snap.cfiRange || '',
+                isSingleWord,
+              });
+            } catch (e) {
+              console.warn('[Reader] show selection popup failed:', e);
+            }
+          }, 1200);
         });
 
         // 监听高亮点击（使用最新 store 快照，避免闭包拿到初始 highlights）
@@ -1129,49 +1091,71 @@ export default function Reader() {
   // 优先使用「选区快照」——工具条弹出后实时 selection 可能已丢失，快照更可靠
   const handleSelectParagraph = () => {
     if (!selectionPopup) return;
-    try {
-      const rendition = renditionRef.current;
-      const blockTags = ['P', 'DIV', 'LI', 'SECTION', 'BLOCKQUOTE', 'TD', 'H1', 'H2', 'H3', 'ARTICLE'];
+    const rendition = renditionRef.current;
+    if (!rendition) {
+      console.warn('[Reader] 整段：rendition 不可用');
+      return;
+    }
 
+    const blockTags = ['P', 'DIV', 'LI', 'SECTION', 'BLOCKQUOTE', 'TD', 'H1', 'H2', 'H3', 'ARTICLE'];
+
+    // ===== 诊断日志：点击前的选区状态（便于真机排查）=====
+    const snap = savedSelectionRef.current;
+    const snapNode = snap?.range?.commonAncestorContainer;
+    const snapValid = !!(snap && snap.doc && snapNode && snap.doc.contains?.(snapNode));
+    console.debug('[Reader] 整段-点击前:', {
+      hasSnapshot: !!snap,
+      snapshotValid: snapValid,
+      snapshotTextLen: snap?.text?.length ?? 0,
+      popupCfi: selectionPopup.cfiRange,
+    });
+
+    try {
+      // ===== 1) 取有效 Range：快照优先（校验节点仍在文档中），否则用 CFI 重新解析 =====
       let range: Range | null = null;
       let doc: any = null;
+      let source = 'none';
 
-      // 1) 优先用快照
-      const saved = savedSelectionRef.current;
-      if (saved?.range && saved?.doc) {
-        range = saved.range;
-        doc = saved.doc;
-      }
-
-      // 2) 快照不可用时，回退到遍历 iframe 内的实时选区
-      if (!range || !doc) {
-        const contents = rendition?.getContents?.() || [];
-        for (const c of contents) {
-          const d = c?.document;
-          const w = d?.defaultView;
-          if (!d || !w) continue;
-          const s = w.getSelection?.();
-          if (!s || s.isCollapsed || s.rangeCount === 0) continue;
-          range = s.getRangeAt(0);
-          doc = d;
-          break;
+      if (snapValid) {
+        range = snap!.range;
+        doc = snap!.doc;
+        source = 'snapshot';
+      } else if (selectionPopup.cfiRange) {
+        // rendition.getRange(cfi) 只从「当前可见 view」解析，返回 Range 或 undefined
+        const r = rendition.getRange(selectionPopup.cfiRange);
+        if (r) {
+          range = r;
+          doc = r.commonAncestorContainer?.ownerDocument || r.startContainer?.ownerDocument || null;
+          source = 'cfi';
         }
       }
 
-      if (!range || !doc) return;
+      if (!range || !doc) {
+        console.warn('[Reader] 整段失败：无法获取有效 Range（快照失效且 CFI 解析失败）');
+        return;
+      }
 
-      // 向上找段落级元素
-      let node: any = range.commonAncestorContainer;
-      if (node?.nodeType === 3) node = node.parentNode;
+      // ===== 2) 用起点节点向上找段落级元素 =====
+      // 注意：跨段选择时 commonAncestorContainer 可能是容器，用 startContainer 更贴近用户起点
+      let node: any = range.startContainer || range.commonAncestorContainer;
+      if (node?.nodeType === 3) node = node.parentNode; // Text 节点 → 父元素
       while (node && node !== doc.body && !blockTags.includes(node.nodeName)) {
         node = node.parentNode;
       }
-      if (!node || node === doc.body) return;
+      if (!node || node === doc.body) {
+        console.warn('[Reader] 整段失败：未找到段落级元素（startContainer 链上没有 P/DIV/LI 等）');
+        return;
+      }
 
+      // ===== 3) 构造段落范围 =====
       const paraRange = doc.createRange();
       paraRange.selectNodeContents(node);
+      if (paraRange.collapsed) {
+        console.warn('[Reader] 整段失败：段落内容为空');
+        return;
+      }
 
-      // 同步更新 iframe 内的可视选区
+      // ===== 4) 同步 iframe 内的可视选区 =====
       const win = doc.defaultView;
       const liveSel = win?.getSelection?.();
       if (liveSel) {
@@ -1179,13 +1163,36 @@ export default function Reader() {
         liveSel.addRange(paraRange);
       }
 
-      const cfiRange = rendition.cfis?.fromRange(paraRange);
-      if (cfiRange) {
-        const text = paraRange.toString();
-        setSelectionPopup({ ...selectionPopup, cfiRange, text });
-        // 更新快照，方便连续操作
-        savedSelectionRef.current = { range: paraRange.cloneRange(), doc, text };
+      // ===== 5) 生成新 CFI（用 Contents.cfiFromRange，epub.js 官方接口）=====
+      let cfiRange = '';
+      const contentsList = rendition.getContents?.() || [];
+      for (const c of contentsList) {
+        if (c?.document === doc && typeof c.cfiFromRange === 'function') {
+          cfiRange = c.cfiFromRange(paraRange);
+          break;
+        }
       }
+      if (!cfiRange) {
+        console.warn('[Reader] 整段失败：无法从段落 Range 生成 CFI');
+        return;
+      }
+
+      const text = paraRange.toString().trim();
+      if (!text) {
+        console.warn('[Reader] 整段失败：段落文本为空');
+        return;
+      }
+
+      // ===== 6) 主动同步：弹窗内容、快照、选区会话 =====
+      savedSelectionRef.current = {
+        range: paraRange.cloneRange(),
+        doc,
+        text,
+        cfiRange,
+      };
+      lastSelectionActivityRef.current = Date.now();
+      setSelectionPopup({ ...selectionPopup, cfiRange, text });
+      console.debug('[Reader] 整段-成功:', { source, textLen: text.length, cfiRange });
     } catch (e) {
       console.warn('[Reader] select paragraph failed:', e);
     }
