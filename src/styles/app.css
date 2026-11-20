@@ -483,6 +483,8 @@ a { color: var(--primary); text-decoration: none; }
   display: flex;
   align-items: center;
   width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .toc-toggle {
@@ -513,7 +515,8 @@ a { color: var(--primary); text-decoration: none; }
   display: flex;
   align-items: center;
   flex: 1;
-  width: 100%;
+  /* 关键：不能同时写 width:100%，否则叠加左侧折叠箭头会溢出面板，把右侧页码挤出可视区 */
+  min-width: 0;
   /* 右侧固定留出页码区，页码用绝对定位，位置与标题长度/缩进完全无关 */
   padding: 12px 56px 12px 0;
   text-align: left;
