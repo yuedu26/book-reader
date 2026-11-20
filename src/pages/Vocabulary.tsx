@@ -15,6 +15,7 @@ export default function NotesPage() {
   const [detailTab, setDetailTab] = useState<'marks' | 'notes' | 'vocab'>('marks');
   const [copied, setCopied] = useState(false);
   const [swipedId, setSwipedId] = useState<string | null>(null); // 左滑删除中的单词
+  const [expandedWordId, setExpandedWordId] = useState<string | null>(null); // 展开例句的单词
   const touchStartXRef = useRef(0);
 
   const books = useAppStore(s => s.books);
@@ -115,21 +116,32 @@ export default function NotesPage() {
             </div>
           ) : (
             <div className="notes-all-list">
-              {[...vocabulary].sort((a, b) => b.createdAt - a.createdAt).slice(0, 300).map(w => (
-                <div key={w.id} className="note-item">
-                  <div className="note-item-main" onClick={() => goTo(w.bookId, '')}>
-                    <div className="note-book-tag">{bookTitle(w.bookId)}</div>
-                    <div className="note-word-tag">{w.word}</div>
-                    {w.context && <div className="note-context">“{w.context}”</div>}
-                    <div className="note-date">
-                      复习 {w.reviewCount} 次 · {formatRelativeTime(w.createdAt)}
+              {[...vocabulary].sort((a, b) => b.createdAt - a.createdAt).slice(0, 300).map(w => {
+                const expanded = expandedWordId === w.id;
+                return (
+                  <div key={w.id} className="note-item">
+                    {/* 点击展开/收起例句（不跳转，避免页面重置） */}
+                    <div className="note-item-main" onClick={() => setExpandedWordId(expanded ? null : w.id)}>
+                      <div className="note-book-tag">{bookTitle(w.bookId)}</div>
+                      <div className="note-word-tag">
+                        {w.word}
+                        <span className="note-expand-hint">{expanded ? '收起' : '例句'}</span>
+                      </div>
+                      {w.context && (
+                        <div className={`note-context ${expanded ? '' : 'note-context-clamped'}`}>
+                          “{w.context}”
+                        </div>
+                      )}
+                      <div className="note-date">
+                        复习 {w.reviewCount} 次 · {formatRelativeTime(w.createdAt)}
+                      </div>
                     </div>
+                    <button className="note-delete" onClick={() => removeWord(w.id)} title="删除">
+                      <TrashIcon />
+                    </button>
                   </div>
-                  <button className="note-delete" onClick={() => removeWord(w.id)} title="删除">
-                    <TrashIcon />
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )
         ) : view === 'all' ? (

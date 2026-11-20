@@ -98,7 +98,11 @@ export default function SettingsPanel({ open, onClose }: Props) {
             <div className="settings-row">
               <button
                 className="font-step-btn"
-                onClick={() => updateSettings({ lineHeight: Math.max(1.2, Math.round((settings.lineHeight - 0.1) * 10) / 10) })}
+                onClick={() => {
+                  // 整数运算避免浮点误差（1.8-0.1 会得到 1.7000000000000002，多次运算后可能跳变）
+                  const v = Math.round(settings.lineHeight * 10) - 1;
+                  updateSettings({ lineHeight: Math.max(12, v) / 10 });
+                }}
                 title="减小行高"
               >−</button>
               <input
@@ -112,7 +116,10 @@ export default function SettingsPanel({ open, onClose }: Props) {
               />
               <button
                 className="font-step-btn"
-                onClick={() => updateSettings({ lineHeight: Math.min(3, Math.round((settings.lineHeight + 0.1) * 10) / 10) })}
+                onClick={() => {
+                  const v = Math.round(settings.lineHeight * 10) + 1;
+                  updateSettings({ lineHeight: Math.min(30, v) / 10 });
+                }}
                 title="增大行高"
               >＋</button>
               <span className="settings-value">{settings.lineHeight.toFixed(1)}</span>

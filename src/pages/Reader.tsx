@@ -100,6 +100,7 @@ export default function Reader() {
   const applyPagePaddingRef = useRef<((doc: any) => void) | null>(null); // 设置正文边距（供 applyTheme 调用）
   const layoutKeyRef = useRef(''); // 上一次的排版参数（用于判断是否真的需要重排）
   const layoutSettleTimerRef = useRef<ReturnType<typeof setTimeout>>(); // 重排防抖定时器
+  const scrollTargetRef = useRef<string | undefined>(); // 跨页选择切换滑动模式时的定位 CFI
   const readingStartRef = useRef(Date.now());
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const prevPageModeRef = useRef(settings.pageMode);
@@ -433,11 +434,15 @@ export default function Reader() {
             });
           }
 
-          // 选择变更的延迟计时器：给用户留时间拖手柄调整范围，稳定后再弹工具条
+          // ===== 文本选择：以「手指是否按着」为主判断，松手 300ms 后才弹工具条 =====
           let selectionTimer: ReturnType<typeof setTimeout> | null = null;
-          const scheduleSelectionPopup = (delay = 450) => {
+          let fingerDown = false;
+
+          const scheduleSelectionPopup = (delay = 300) => {
             if (selectionTimer) clearTimeout(selectionTimer);
             selectionTimer = setTimeout(() => {
+              // 手指又按下了（正在拖手柄）→ 继续等，绝不中途弹
+              if (fingerDown) return;
               const sel = win?.getSelection?.()?.toString?.();
               if (!sel || sel.trim().length === 0) return;
               const range = win?.getSelection()?.getRangeAt(0);
@@ -447,36 +452,44 @@ export default function Reader() {
             }, delay);
           };
 
-          // iOS Safari 兼容：mouseup 检测到选择后延迟弹工具条（期间可继续拖手柄调整）
-          doc.addEventListener('mouseup', () => {
-            const sel = win?.getSelection?.()?.toString?.();
-            if (sel && sel.trim().length > 0) scheduleSelectionPopup(450);
-          });
-
-          // 开始拖手柄调整时，取消即将弹出的工具条，等调整稳定后再弹
-          doc.addEventListener('touchstart', (ev: TouchEvent) => {
-            const sel = win?.getSelection?.()?.toString?.();
-            if (sel && sel.trim().length > 0) {
-              if (selectionTimer) clearTimeout(selectionTimer);
-            }
-          }, { passive: true });
-          doc.addEventListener('touchend', (ev: TouchEvent) => {
-            const sel = win?.getSelection?.()?.toString?.();
-            if (sel && sel.trim().length > 0) scheduleSelectionPopup(450);
-          }, { passive: true });
-
-          // 选择范围变化（拖动手柄）时重置计时器：手指还按着/范围还在变，就不弹工具条
-          doc.addEventListener('selectionchange', () => {
+          // 手指按下：标记 + 取消待弹
+          doc.addEventListener('touchstart', () => {
+            fingerDown = true;
             if (selectionTimer) clearTimeout(selectionTimer);
+          }, { passive: true });
+
+          // 手指离开：清标记，若有选择则 300ms 后弹
+          doc.addEventListener('touchend', () => {
+            fingerDown = false;
+            const sel = win?.getSelection?.()?.toString?.();
+            if (sel && sel.trim().length > 0) scheduleSelectionPopup(300);
+          }, { passive: true });
+
+          doc.addEventListener('touchcancel', () => {
+            fingerDown = false;
+          }, { passive: true });
+
+          // 选择范围变化：手指按着就取消；没按着则重新计时（防抖）
+          doc.addEventListener('selectionchange', () => {
+            if (fingerDown) {
+              if (selectionTimer) clearTimeout(selectionTimer);
+              return;
+            }
             const sel = win?.getSelection?.();
             if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) {
-              scheduleSelectionPopup(450);
+              scheduleSelectionPopup(300);
             }
           });
 
-          // 跨页选择：当选择已延伸到屏幕底部、手指仍在拖动时，切换为滑动模式继续选
+          // 桌面端：mouseup 后弹
+          doc.addEventListener('mouseup', () => {
+            const sel = win?.getSelection?.()?.toString?.();
+            if (sel && sel.trim().length > 0) scheduleSelectionPopup(300);
+          });
+
+          // 跨页选择：选择已延伸到屏幕底部、手指仍在拖动时，切到滑动模式继续选
           let switchedToScroll = false;
-          doc.addEventListener('touchmove', (ev: TouchEvent) => {
+          doc.addEventListener('touchmove', () => {
             if (switchedToScroll) return;
             const sel = win?.getSelection?.();
             if (!sel || sel.isCollapsed) return;
@@ -485,7 +498,12 @@ export default function Reader() {
               const rect = range.getBoundingClientRect();
               if (rect.bottom >= window.innerHeight - 90) {
                 switchedToScroll = true;
-                window.dispatchEvent(new CustomEvent('reader-switch-to-scroll'));
+                // 记录选择起点 CFI，用于切换后定位，避免闪到下一页
+                const startRange = doc.createRange();
+                startRange.setStart(range.startContainer, range.startOffset);
+                startRange.setEnd(range.startContainer, range.startOffset);
+                const startCfi = rendition.cfis?.fromRange(startRange) || undefined;
+                window.dispatchEvent(new CustomEvent('reader-switch-to-scroll', { detail: { cfi: startCfi } }));
               }
             } catch {}
           }, { passive: true });
@@ -883,20 +901,33 @@ export default function Reader() {
     if (rendition) {
       rendition.flow(settings.pageMode === 'scrolled' ? 'scrolled' : 'paginated');
       // 重新渲染到当前阅读位置
-      const loc = book?.currentLocation;
+      // 优先用跨页选择记录的定位 CFI，避免切换后闪到别处
+      const loc = scrollTargetRef.current || book?.currentLocation;
+      scrollTargetRef.current = undefined;
       rendition.display(loc || undefined).catch(() => rendition.display());
     }
   }, [settings.pageMode]);
 
-  // 跨页选择：正文里选到屏幕底部继续拖时，自动切到滑动模式（选择可跨多屏）
+  // 跨页选择：正文里选到屏幕底部继续拖时，自动切到滑动模式（选择可跨多屏），
+  // 并把阅读位置定位到选择起点，避免切换后闪到下一页
   useEffect(() => {
-    const handler = () => {
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail as { cfi?: string } | undefined;
+      scrollTargetRef.current = detail?.cfi;
       if (useAppStore.getState().settings.pageMode === 'scrolled') return;
       updateSettings({ pageMode: 'scrolled' });
     };
     window.addEventListener('reader-switch-to-scroll', handler as EventListener);
     return () => window.removeEventListener('reader-switch-to-scroll', handler as EventListener);
   }, [updateSettings]);
+
+  // 更多菜单：点击菜单外部（含阅读区）自动关闭
+  useEffect(() => {
+    if (!moreMenuOpen) return;
+    const close = () => setMoreMenuOpen(false);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [moreMenuOpen]);
 
   // Navigate prev/next
   const goPrev = () => renditionRef.current?.prev();
@@ -1018,6 +1049,38 @@ export default function Reader() {
       console.error('[Reader] Failed to copy text');
     }
     setSelectionPopup(null);
+  };
+
+  // 选中整段（解决跨页选择：整段可跨页选中）
+  const handleSelectParagraph = () => {
+    if (!selectionPopup) return;
+    try {
+      const rendition = renditionRef.current;
+      const range = rendition?.getRange(selectionPopup.cfiRange);
+      if (!range) return;
+      const doc = range.commonAncestorContainer.ownerDocument;
+      const win = doc?.defaultView;
+      if (!doc || !win) return;
+      // 向上找到段落级元素
+      let node: any = range.commonAncestorContainer;
+      const blockTags = ['P', 'DIV', 'LI', 'SECTION', 'BLOCKQUOTE', 'TD'];
+      while (node && node !== doc.body && !blockTags.includes(node.nodeName)) {
+        node = node.parentNode;
+      }
+      if (!node || node === doc.body) return;
+      const paraRange = doc.createRange();
+      paraRange.selectNodeContents(node);
+      const sel = win.getSelection();
+      if (!sel) return;
+      sel.removeAllRanges();
+      sel.addRange(paraRange);
+      const cfiRange = rendition.cfis?.fromRange(paraRange);
+      if (cfiRange) {
+        setSelectionPopup({ ...selectionPopup, cfiRange, text: paraRange.toString() });
+      }
+    } catch (e) {
+      console.warn('[Reader] select paragraph failed:', e);
+    }
   };
 
   // Handle highlight
@@ -1214,7 +1277,11 @@ export default function Reader() {
         </button>
         <div className="chapter-title-bar">{currentChapterTitle || book.title}</div>
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-          <button className="toolbar-btn" onClick={() => setMoreMenuOpen(prev => !prev)} title="更多">
+          <button
+            className="toolbar-btn"
+            onClick={(e) => { e.stopPropagation(); setMoreMenuOpen(prev => !prev); }}
+            title="更多"
+          >
             <MoreIcon />
           </button>
           {moreMenuOpen && (
@@ -1289,6 +1356,7 @@ export default function Reader() {
           onHighlight={handleHighlight}
           onNote={handleAddNote}
           onLookup={handleLookup}
+          onSelectParagraph={handleSelectParagraph}
           onClose={() => setSelectionPopup(null)}
         />
       )}

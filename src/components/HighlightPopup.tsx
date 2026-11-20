@@ -8,20 +8,19 @@ interface Props {
   onHighlight: () => void;
   onNote: () => void;
   onLookup: () => void;
+  onSelectParagraph: () => void;
   onClose: () => void;
 }
 
 export default function TextSelectionPopup({
   y, text, isSingleWord,
-  onCopy, onHighlight, onNote, onLookup, onClose,
+  onCopy, onHighlight, onNote, onLookup, onSelectParagraph, onClose,
 }: Props) {
-  // 工具条出现在选中位置附近，但与选中处留足间距（约 96px），
-  // 这样即使 iOS 原生选择菜单冒出来，也不会挡住我们的工具条。
+  // 工具条出现在选中位置附近，并与选中处留出间距，避开 iOS 原生菜单
   const viewportH = typeof window !== 'undefined' ? window.innerHeight : 800;
   const GAP = 64;
   let top = y + GAP;
   if (top + 130 > viewportH) {
-    // 下方空间不够，改放到选中处上方
     top = Math.max(8, y - GAP - 70);
   }
 
@@ -45,6 +44,12 @@ export default function TextSelectionPopup({
               <span>查词</span>
             </button>
           )}
+          <button className="popup-action-btn" onClick={onSelectParagraph} title="选中整段（解决跨页选择）">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 6h18M3 12h18M3 18h18"></path>
+            </svg>
+            <span>整段</span>
+          </button>
           <button className="popup-action-btn" onClick={onHighlight} title="划线">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="20" x2="12" y2="10"></line>
