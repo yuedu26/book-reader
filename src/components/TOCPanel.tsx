@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { formatRelativeTime } from '../utils';
-import { TrashIcon, BookmarkIcon } from './Icons';
+import { TrashIcon, BookmarkIcon, BookmarkFilledIcon } from './Icons';
 import type { Chapter, Bookmark } from '../types';
 
 interface Props {
@@ -14,12 +14,15 @@ interface Props {
   onDeleteBookmark: (id: string) => void;
   tocPageMap?: Record<string, number>;
   bookmarkPageMap?: Record<string, number>;
+  isCurrentBookmarked?: boolean;
+  onToggleBookmark?: () => void;
 }
 
 export default function TOCPanel({
   open, onClose, toc, currentHref, onNavigate,
   bookmarks, onNavigateBookmark, onDeleteBookmark,
   tocPageMap, bookmarkPageMap,
+  isCurrentBookmarked, onToggleBookmark,
 }: Props) {
   // 默认全部展开；记录被折叠的节点
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -121,6 +124,15 @@ export default function TOCPanel({
           <div className="panel-tabs">
             <button className="panel-tab active">目录</button>
           </div>
+          {onToggleBookmark && (
+            <button
+              className={`toolbar-btn ${isCurrentBookmarked ? 'toolbar-btn-active' : ''}`}
+              onClick={onToggleBookmark}
+              title={isCurrentBookmarked ? '取消书签' : '添加书签'}
+            >
+              {isCurrentBookmarked ? <BookmarkFilledIcon /> : <BookmarkIcon />}
+            </button>
+          )}
         </div>
         <div className="side-panel-body">
           {toc.length === 0 ? (

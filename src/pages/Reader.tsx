@@ -64,6 +64,8 @@ export default function Reader() {
   const bookmarks = useAppStore(s => s.bookmarks.filter(b => b.bookId === bookId));
   const addBookmark = useAppStore(s => s.addBookmark);
   const removeBookmark = useAppStore(s => s.removeBookmark);
+  // 当前阅读页是否已加书签
+  const isCurrentBookmarked = !!(book?.currentLocation && bookmarks.some(b => b.cfi === book.currentLocation));
   const addWord = useAppStore(s => s.addWord);
 
   const [loading, setLoading] = useState(true);
@@ -92,6 +94,7 @@ export default function Reader() {
   const [atEnd, setAtEnd] = useState(false); // 是否在全书最后一页
   const [finishedOpen, setFinishedOpen] = useState(false); // 读完完成页
   const [moreMenuOpen, setMoreMenuOpen] = useState(false); // 右上角更多菜单
+  const [pullHint, setPullHint] = useState(false); // 下拉添加书签的提示
 
   const noteDialogLockRef = useRef(false); // 批注弹窗打开后短暂锁定遮罩，防止 iOS tap 的后续 click 立刻关掉它
   const noteDialogLockTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -102,6 +105,7 @@ export default function Reader() {
   const layoutSettleTimerRef = useRef<ReturnType<typeof setTimeout>>(); // 重排防抖定时器
   const scrollTargetRef = useRef<string | undefined>(); // 跨页选择切换滑动模式时的定位 CFI
   const moreMenuOpenRef = useRef(false); // 更多菜单是否打开（供 iframe 内点击判断）
+  const toggleBookmarkRef = useRef<(() => void) | null>(null); // 供 iframe 下拉手势调用
   const selectionPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null); // 选择稳定轮询
   const readingStartRef = useRef(Date.now());
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -404,11 +408,27 @@ export default function Reader() {
             let touchStartX = 0;
             let touchStartY = 0;
             let touchStartTime = 0;
+            let pullTriggered = false;
+
             doc.addEventListener('touchstart', (ev: TouchEvent) => {
               const touch = ev.touches[0];
               touchStartX = touch.clientX;
               touchStartY = touch.clientY;
               touchStartTime = Date.now();
+              pullTriggered = false;
+            }, { passive: true });
+
+            // 下拉添加书签（仅分页模式）：向下拖动超过阈值时提示，松手即切换书签
+            doc.addEventListener('touchmove', (ev: TouchEvent) => {
+              if (useAppStore.getState().settings.pageMode !== 'paginated') return;
+              if (pullTriggered) return;
+              const sel = win?.getSelection?.()?.toString?.();
+              if (sel && sel.trim().length > 0) return; // 正在选文字，不触发
+              const dy = ev.touches[0].clientY - touchStartY;
+              if (dy > 60) {
+                pullTriggered = true;
+                setPullHint(true);
+              }
             }, { passive: true });
 
             doc.addEventListener('touchend', (ev: TouchEvent) => {
@@ -420,6 +440,15 @@ export default function Reader() {
               const absDx = Math.abs(dx);
               const absDy = Math.abs(dy);
               const elapsed = Date.now() - touchStartTime;
+
+              // 下拉超过阈值 → 切换书签（仅分页模式）
+              if (pullTriggered && dy > 80 && useAppStore.getState().settings.pageMode === 'paginated') {
+                pullTriggered = false;
+                setPullHint(false);
+                toggleBookmarkRef.current?.();
+                return;
+              }
+              setPullHint(false);
 
               // 轻划翻页：水平位移 >= 30px、垂直位移 < 60px，动作干脆（<= 600ms）
               if (absDx >= 30 && absDy < 60 && elapsed <= 600) {
@@ -1023,6 +1052,8 @@ export default function Reader() {
       });
     }
   };
+  // 供 iframe 内下拉手势调用（避免 useEffect 闭包拿到旧引用）
+  toggleBookmarkRef.current = toggleBookmark;
 
   // Handle copy
   const handleCopy = async () => {
@@ -1332,7 +1363,7 @@ export default function Reader() {
         </div>
       )}
 
-      {/* Bottom toolbar */}
+      {/* Bottom toolbar：目录按钮 | 进度(居中) | 页码(居右) */}
       <div className={`reader-toolbar reader-toolbar-bottom ${!showToolbar ? 'toolbar-hidden-bottom' : ''}`}>
         <button
           className={`toolbar-btn ${tocOpen ? 'toolbar-btn-active' : ''}`}
@@ -1340,17 +1371,23 @@ export default function Reader() {
         >
           <ListIcon />
         </button>
+        <span className="progress-percent">{progressPercent}%</span>
         <span className="progress-text">
           {toolbarTotal > 0 ? `${toolbarPage} / ${toolbarTotal}` : (generatingPages ? '…' : '')}
         </span>
-        <span className="progress-percent">{progressPercent}%</span>
-        <button className="toolbar-btn" onClick={toggleBookmark}>
-          {bookmarks.some(b => b.cfi === book.currentLocation)
-            ? <BookmarkFilledIcon />
-            : <BookmarkIcon />
-          }
-        </button>
       </div>
+
+      {/* 下拉添加书签的提示条（仅分页模式） */}
+      {pullHint && (
+        <div className="pull-bookmark-hint">↓ 松手添加书签</div>
+      )}
+
+      {/* 当前页有书签时的右上角标记（仅分页模式） */}
+      {!showToolbar && isCurrentBookmarked && (
+        <div className="bookmark-ribbon" onClick={toggleBookmark} title="取消书签">
+          <BookmarkFilledIcon />
+        </div>
+      )}
 
       {/* 纯阅读模式右下角页码（章节内页码） */}
       {!showToolbar && !loading && chapterTotalPages > 0 && (
@@ -1420,6 +1457,8 @@ export default function Reader() {
         onDeleteBookmark={removeBookmark}
         tocPageMap={tocPageMap}
         bookmarkPageMap={bookmarkPageMap}
+        isCurrentBookmarked={isCurrentBookmarked}
+        onToggleBookmark={toggleBookmark}
       />
 
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
