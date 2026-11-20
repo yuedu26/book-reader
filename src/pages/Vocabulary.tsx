@@ -116,32 +116,39 @@ export default function NotesPage() {
             </div>
           ) : (
             <div className="notes-all-list">
-              {[...vocabulary].sort((a, b) => b.createdAt - a.createdAt).slice(0, 300).map(w => {
-                const expanded = expandedWordId === w.id;
-                return (
-                  <div key={w.id} className="note-item">
-                    {/* 点击展开/收起例句（不跳转，避免页面重置） */}
-                    <div className="note-item-main" onClick={() => setExpandedWordId(expanded ? null : w.id)}>
-                      <div className="note-book-tag">{bookTitle(w.bookId)}</div>
-                      <div className="note-word-tag">
-                        {w.word}
-                        <span className="note-expand-hint">{expanded ? '收起' : '例句'}</span>
-                      </div>
-                      {w.context && (
-                        <div className={`note-context ${expanded ? '' : 'note-context-clamped'}`}>
-                          “{w.context}”
-                        </div>
-                      )}
-                      <div className="note-date">
-                        复习 {w.reviewCount} 次 · {formatRelativeTime(w.createdAt)}
-                      </div>
+              {[...vocabulary].sort((a, b) => b.createdAt - a.createdAt).slice(0, 300).map(w => (
+                <div key={w.id} className="note-item">
+                  <div className="note-item-main">
+                    <div className="note-word-row">
+                      <span className="note-word-tag">{w.word}</span>
+                      <button
+                        className="note-review-btn"
+                        onClick={() => incrementReview(w.id)}
+                        title="记录一次复习"
+                      >
+                        ✓ {w.reviewCount}
+                      </button>
+                      <button
+                        className="note-lookup-btn"
+                        onClick={() => window.open(`https://dict.youdao.com/result?word=${encodeURIComponent(w.word)}&lang=en`, '_blank')}
+                        title="查词典"
+                      >
+                        词典
+                      </button>
                     </div>
-                    <button className="note-delete" onClick={() => removeWord(w.id)} title="删除">
-                      <TrashIcon />
-                    </button>
+                    {w.context && <div className="note-context">“{w.context}”</div>}
+                    <div className="note-date note-date-row">
+                      <span>{formatRelativeTime(w.createdAt)}</span>
+                      <span className="note-book-name" title={bookTitle(w.bookId)}>
+                        {bookTitle(w.bookId)}
+                      </span>
+                    </div>
                   </div>
-                );
-              })}
+                  <button className="note-delete" onClick={() => removeWord(w.id)} title="删除">
+                    <TrashIcon />
+                  </button>
+                </div>
+              ))}
             </div>
           )
         ) : view === 'all' ? (

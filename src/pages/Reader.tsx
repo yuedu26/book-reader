@@ -101,6 +101,7 @@ export default function Reader() {
   const layoutKeyRef = useRef(''); // 上一次的排版参数（用于判断是否真的需要重排）
   const layoutSettleTimerRef = useRef<ReturnType<typeof setTimeout>>(); // 重排防抖定时器
   const scrollTargetRef = useRef<string | undefined>(); // 跨页选择切换滑动模式时的定位 CFI
+  const moreMenuOpenRef = useRef(false); // 更多菜单是否打开（供 iframe 内点击判断）
   const readingStartRef = useRef(Date.now());
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const prevPageModeRef = useRef(settings.pageMode);
@@ -364,6 +365,11 @@ export default function Reader() {
             const screenX = clientX - pageScrollLeft;
             const width = window.innerWidth;
             if (!width) return;
+            // 更多菜单打开时，点阅读区先关闭菜单，不翻页（iframe 内的点击不会冒泡到外层 document）
+            if (moreMenuOpenRef.current) {
+              setMoreMenuOpen(false);
+              return;
+            }
             setSelectionPopup(null);
             // 翻页热区扩大（左右各 40%），方便左手单手操作
             if (screenX < width * 0.4) {
@@ -434,22 +440,30 @@ export default function Reader() {
             });
           }
 
-          // ===== 文本选择：以「手指是否按着」为主判断，松手 300ms 后才弹工具条 =====
+          // ===== 文本选择：手指按着绝不弹；松手且选择稳定后才弹工具条 =====
           let selectionTimer: ReturnType<typeof setTimeout> | null = null;
           let fingerDown = false;
+          let lastSelectionChangeAt = 0;
+
+          const popupIfStable = () => {
+            // 手指还按着（拖手柄中）→ 不弹
+            if (fingerDown) return;
+            // 选择最近 350ms 内还在变化 → 说明用户还在调整，继续等
+            if (Date.now() - lastSelectionChangeAt < 350) {
+              scheduleSelectionPopup(300);
+              return;
+            }
+            const sel = win?.getSelection?.()?.toString?.();
+            if (!sel || sel.trim().length === 0) return;
+            const range = win?.getSelection()?.getRangeAt(0);
+            if (!range) return;
+            const cfiRange = rendition.cfis?.fromRange(range);
+            if (cfiRange) rendition.emit('selected', cfiRange, sel);
+          };
 
           const scheduleSelectionPopup = (delay = 300) => {
             if (selectionTimer) clearTimeout(selectionTimer);
-            selectionTimer = setTimeout(() => {
-              // 手指又按下了（正在拖手柄）→ 继续等，绝不中途弹
-              if (fingerDown) return;
-              const sel = win?.getSelection?.()?.toString?.();
-              if (!sel || sel.trim().length === 0) return;
-              const range = win?.getSelection()?.getRangeAt(0);
-              if (!range) return;
-              const cfiRange = rendition.cfis?.fromRange(range);
-              if (cfiRange) rendition.emit('selected', cfiRange, sel);
-            }, delay);
+            selectionTimer = setTimeout(popupIfStable, delay);
           };
 
           // 手指按下：标记 + 取消待弹
@@ -469,8 +483,9 @@ export default function Reader() {
             fingerDown = false;
           }, { passive: true });
 
-          // 选择范围变化：手指按着就取消；没按着则重新计时（防抖）
+          // 选择范围变化：记录时间；手指按着就取消，没按着则重新计时（防抖）
           doc.addEventListener('selectionchange', () => {
+            lastSelectionChangeAt = Date.now();
             if (fingerDown) {
               if (selectionTimer) clearTimeout(selectionTimer);
               return;
@@ -487,26 +502,8 @@ export default function Reader() {
             if (sel && sel.trim().length > 0) scheduleSelectionPopup(300);
           });
 
-          // 跨页选择：选择已延伸到屏幕底部、手指仍在拖动时，切到滑动模式继续选
-          let switchedToScroll = false;
-          doc.addEventListener('touchmove', () => {
-            if (switchedToScroll) return;
-            const sel = win?.getSelection?.();
-            if (!sel || sel.isCollapsed) return;
-            try {
-              const range = sel.getRangeAt(0);
-              const rect = range.getBoundingClientRect();
-              if (rect.bottom >= window.innerHeight - 90) {
-                switchedToScroll = true;
-                // 记录选择起点 CFI，用于切换后定位，避免闪到下一页
-                const startRange = doc.createRange();
-                startRange.setStart(range.startContainer, range.startOffset);
-                startRange.setEnd(range.startContainer, range.startOffset);
-                const startCfi = rendition.cfis?.fromRange(startRange) || undefined;
-                window.dispatchEvent(new CustomEvent('reader-switch-to-scroll', { detail: { cfi: startCfi } }));
-              }
-            } catch {}
-          }, { passive: true });
+          // 跨页选择：不再自动切换模式（会导致闪页且选择丢失），
+          // 改为工具条上的「整段」按钮一键选中整个段落（段落跨页也能包含）。
         };
 
         // 直接对正文 body 设内联边距（内联 !important 优先级最高，确保边距真正生效）
@@ -921,8 +918,9 @@ export default function Reader() {
     return () => window.removeEventListener('reader-switch-to-scroll', handler as EventListener);
   }, [updateSettings]);
 
-  // 更多菜单：点击菜单外部（含阅读区）自动关闭
+  // 更多菜单：点击菜单外部（含阅读区 iframe 内）自动关闭
   useEffect(() => {
+    moreMenuOpenRef.current = moreMenuOpen;
     if (!moreMenuOpen) return;
     const close = () => setMoreMenuOpen(false);
     document.addEventListener('click', close);

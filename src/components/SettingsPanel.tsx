@@ -171,6 +171,34 @@ export default function SettingsPanel({ open, onClose }: Props) {
               </button>
             </div>
           </div>
+
+          {/* 检查更新 */}
+          <div className="settings-section">
+            <div className="settings-label">应用更新</div>
+            <button
+              className="btn btn-secondary"
+              style={{ width: '100%', marginTop: 4 }}
+              onClick={async () => {
+                try {
+                  if ('serviceWorker' in navigator) {
+                    const reg = await navigator.serviceWorker.getRegistration();
+                    if (reg) {
+                      await reg.update();
+                    }
+                  }
+                } catch (e) {
+                  console.warn('[Settings] update failed:', e);
+                }
+                // 稍等让新版本接管，然后刷新
+                setTimeout(() => window.location.reload(), 600);
+              }}
+            >
+              检查更新并刷新
+            </button>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 }}>
+              如果更新后界面没变化，点这里强制拉取最新版本
+            </div>
+          </div>
         </div>
       </div>
     </>
