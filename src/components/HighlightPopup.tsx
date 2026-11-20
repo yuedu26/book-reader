@@ -16,12 +16,19 @@ export default function TextSelectionPopup({
   y, text, isSingleWord,
   onCopy, onHighlight, onNote, onLookup, onSelectParagraph, onClose,
 }: Props) {
-  // 工具条出现在选中位置附近，并与选中处留出间距，避开 iOS 原生菜单
+  // 工具条定位策略：
+  // 1) 下方空间够 → 放选中文字下方 64px（iOS 菜单多在上方，下方很安全）
+  // 2) 下方不够 → 放上方，间距加大到 150px（避开 iOS 上方菜单，避免被遮挡）
+  // 3) 上下都不够 → 兜底放到屏幕 35% 高度处
   const viewportH = typeof window !== 'undefined' ? window.innerHeight : 800;
-  const GAP = 64;
-  let top = y + GAP;
-  if (top + 130 > viewportH) {
-    top = Math.max(8, y - GAP - 70);
+  const GAP_BELOW = 64;
+  const GAP_ABOVE = 150;
+  const TOOLBAR_H = 86;
+  let top = y + GAP_BELOW;
+  const fitsBelow = top + TOOLBAR_H <= viewportH;
+  if (!fitsBelow) {
+    const aboveTop = y - GAP_ABOVE;
+    top = aboveTop >= 8 ? aboveTop : Math.max(8, viewportH * 0.35);
   }
 
   return (
