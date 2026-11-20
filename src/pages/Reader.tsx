@@ -102,6 +102,7 @@ export default function Reader() {
   const layoutSettleTimerRef = useRef<ReturnType<typeof setTimeout>>(); // 重排防抖定时器
   const scrollTargetRef = useRef<string | undefined>(); // 跨页选择切换滑动模式时的定位 CFI
   const moreMenuOpenRef = useRef(false); // 更多菜单是否打开（供 iframe 内点击判断）
+  const selectionPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null); // 选择稳定轮询
   const readingStartRef = useRef(Date.now());
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const prevPageModeRef = useRef(settings.pageMode);
@@ -440,70 +441,55 @@ export default function Reader() {
             });
           }
 
-          // ===== 文本选择：手指按着绝不弹；松手且选择稳定后才弹工具条 =====
-          let selectionTimer: ReturnType<typeof setTimeout> | null = null;
-          let fingerDown = false;
-          let lastSelectionChangeAt = 0;
+          // ===== 文本选择：轮询检测「选择内容是否稳定」 =====
+          // 不再依赖 touchstart/touchend —— iOS 拖选择手柄时这些事件根本不触发，
+          // 只有选择文本内容本身在变/不变，才是判断"用户还在调整"的最可靠信号。
+          let stableSince = 0;
+          let lastText = '';
+          let lastEmittedText = '';
 
-          const popupIfStable = () => {
-            // 手指还按着（拖手柄中）→ 不弹
-            if (fingerDown) return;
-            // 选择最近 350ms 内还在变化 → 说明用户还在调整，继续等
-            if (Date.now() - lastSelectionChangeAt < 350) {
-              scheduleSelectionPopup(300);
-              return;
-            }
-            const sel = win?.getSelection?.()?.toString?.();
-            if (!sel || sel.trim().length === 0) return;
-            const range = win?.getSelection()?.getRangeAt(0);
-            if (!range) return;
-            const cfiRange = rendition.cfis?.fromRange(range);
-            if (cfiRange) rendition.emit('selected', cfiRange, sel);
+          const checkSelectionStable = () => {
+            try {
+              const sel = win?.getSelection?.();
+              if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+                lastText = '';
+                stableSince = 0;
+                lastEmittedText = '';
+                return;
+              }
+              const text = sel.toString();
+              if (!text || text.trim().length === 0) {
+                lastText = '';
+                stableSince = 0;
+                return;
+              }
+              if (text !== lastText) {
+                // 选择内容变了 → 用户还在调整，重置稳定计时；同时收回已弹出的工具条
+                lastText = text;
+                stableSince = Date.now();
+                if (lastEmittedText) {
+                  lastEmittedText = '';
+                  setSelectionPopup(null);
+                }
+                return;
+              }
+              if (stableSince === 0) {
+                stableSince = Date.now();
+                return;
+              }
+              // 内容稳定超过 800ms 且还没弹过 → 弹工具条
+              if (Date.now() - stableSince >= 800 && text !== lastEmittedText) {
+                lastEmittedText = text;
+                const range = sel.getRangeAt(0);
+                const cfiRange = rendition.cfis?.fromRange(range);
+                if (cfiRange) rendition.emit('selected', cfiRange, text);
+              }
+            } catch {}
           };
 
-          const scheduleSelectionPopup = (delay = 300) => {
-            if (selectionTimer) clearTimeout(selectionTimer);
-            selectionTimer = setTimeout(popupIfStable, delay);
-          };
-
-          // 手指按下：标记 + 取消待弹
-          doc.addEventListener('touchstart', () => {
-            fingerDown = true;
-            if (selectionTimer) clearTimeout(selectionTimer);
-          }, { passive: true });
-
-          // 手指离开：清标记，若有选择则 300ms 后弹
-          doc.addEventListener('touchend', () => {
-            fingerDown = false;
-            const sel = win?.getSelection?.()?.toString?.();
-            if (sel && sel.trim().length > 0) scheduleSelectionPopup(300);
-          }, { passive: true });
-
-          doc.addEventListener('touchcancel', () => {
-            fingerDown = false;
-          }, { passive: true });
-
-          // 选择范围变化：记录时间；手指按着就取消，没按着则重新计时（防抖）
-          doc.addEventListener('selectionchange', () => {
-            lastSelectionChangeAt = Date.now();
-            if (fingerDown) {
-              if (selectionTimer) clearTimeout(selectionTimer);
-              return;
-            }
-            const sel = win?.getSelection?.();
-            if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) {
-              scheduleSelectionPopup(300);
-            }
-          });
-
-          // 桌面端：mouseup 后弹
-          doc.addEventListener('mouseup', () => {
-            const sel = win?.getSelection?.()?.toString?.();
-            if (sel && sel.trim().length > 0) scheduleSelectionPopup(300);
-          });
-
-          // 跨页选择：不再自动切换模式（会导致闪页且选择丢失），
-          // 改为工具条上的「整段」按钮一键选中整个段落（段落跨页也能包含）。
+          // 每个 document 启动一个轮询（绑定前先清掉旧的）
+          if (selectionPollTimerRef.current) clearInterval(selectionPollTimerRef.current);
+          selectionPollTimerRef.current = setInterval(checkSelectionStable, 150);
         };
 
         // 直接对正文 body 设内联边距（内联 !important 优先级最高，确保边距真正生效）
@@ -792,6 +778,11 @@ export default function Reader() {
       destroyed = true;
       flushReadingTime();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      // 清除选择稳定轮询
+      if (selectionPollTimerRef.current) {
+        clearInterval(selectionPollTimerRef.current);
+        selectionPollTimerRef.current = null;
+      }
 
       // 清理
       if (renditionRef.current) {
@@ -1050,31 +1041,37 @@ export default function Reader() {
   };
 
   // 选中整段（解决跨页选择：整段可跨页选中）
+  // 直接遍历 iframe 内的真实 selection/range，不绕 CFI（CFI 跨 iframe 时容易失效）
   const handleSelectParagraph = () => {
     if (!selectionPopup) return;
     try {
       const rendition = renditionRef.current;
-      const range = rendition?.getRange(selectionPopup.cfiRange);
-      if (!range) return;
-      const doc = range.commonAncestorContainer.ownerDocument;
-      const win = doc?.defaultView;
-      if (!doc || !win) return;
-      // 向上找到段落级元素
-      let node: any = range.commonAncestorContainer;
-      const blockTags = ['P', 'DIV', 'LI', 'SECTION', 'BLOCKQUOTE', 'TD'];
-      while (node && node !== doc.body && !blockTags.includes(node.nodeName)) {
-        node = node.parentNode;
-      }
-      if (!node || node === doc.body) return;
-      const paraRange = doc.createRange();
-      paraRange.selectNodeContents(node);
-      const sel = win.getSelection();
-      if (!sel) return;
-      sel.removeAllRanges();
-      sel.addRange(paraRange);
-      const cfiRange = rendition.cfis?.fromRange(paraRange);
-      if (cfiRange) {
-        setSelectionPopup({ ...selectionPopup, cfiRange, text: paraRange.toString() });
+      const contents = rendition?.getContents?.() || [];
+      const blockTags = ['P', 'DIV', 'LI', 'SECTION', 'BLOCKQUOTE', 'TD', 'H1', 'H2', 'H3'];
+      for (const c of contents) {
+        const doc = c?.document;
+        const win = doc?.defaultView;
+        if (!doc || !win) continue;
+        const sel = win.getSelection?.();
+        if (!sel || sel.isCollapsed || sel.rangeCount === 0) continue;
+
+        const range = sel.getRangeAt(0);
+        let node: any = range.commonAncestorContainer;
+        while (node && node !== doc.body && !blockTags.includes(node.nodeName)) {
+          node = node.parentNode;
+        }
+        if (!node || node === doc.body) continue;
+
+        const paraRange = doc.createRange();
+        paraRange.selectNodeContents(node);
+        sel.removeAllRanges();
+        sel.addRange(paraRange);
+
+        const cfiRange = rendition.cfis?.fromRange(paraRange);
+        if (cfiRange) {
+          setSelectionPopup({ ...selectionPopup, cfiRange, text: paraRange.toString() });
+        }
+        return;
       }
     } catch (e) {
       console.warn('[Reader] select paragraph failed:', e);

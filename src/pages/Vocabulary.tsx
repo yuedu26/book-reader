@@ -78,6 +78,29 @@ export default function NotesPage() {
     return Object.entries(m);
   };
 
+  // 查词典：优先调起欧路词典，1.2 秒内没跳转成功则回退到在线词典
+  const openDict = (word: string) => {
+    const eudicUrl = `eudic://dict/${encodeURIComponent(word)}`;
+    const fallbackUrl = `https://dict.youdao.com/result?word=${encodeURIComponent(word)}&lang=en`;
+    let jumped = false;
+    const onHide = () => {
+      jumped = true;
+      document.removeEventListener('visibilitychange', onHide);
+    };
+    document.addEventListener('visibilitychange', onHide);
+    setTimeout(() => {
+      document.removeEventListener('visibilitychange', onHide);
+      if (!jumped && !document.hidden) {
+        window.open(fallbackUrl, '_blank');
+      }
+    }, 1200);
+    try {
+      window.location.href = eudicUrl;
+    } catch {
+      if (!jumped) window.open(fallbackUrl, '_blank');
+    }
+  };
+
   const handleCopyVocab = async () => {
     await copyTextToClipboard(buildVocabularyText(activeVocab, activeBook ? [activeBook] : books, false));
     setCopied(true);
@@ -117,35 +140,48 @@ export default function NotesPage() {
           ) : (
             <div className="notes-all-list">
               {[...vocabulary].sort((a, b) => b.createdAt - a.createdAt).slice(0, 300).map(w => (
-                <div key={w.id} className="note-item">
-                  <div className="note-item-main">
-                    <div className="note-word-row">
-                      <span className="note-word-tag">{w.word}</span>
-                      <button
-                        className="note-review-btn"
-                        onClick={() => incrementReview(w.id)}
-                        title="记录一次复习"
-                      >
-                        ✓ {w.reviewCount}
-                      </button>
-                      <button
-                        className="note-lookup-btn"
-                        onClick={() => window.open(`https://dict.youdao.com/result?word=${encodeURIComponent(w.word)}&lang=en`, '_blank')}
-                        title="查词典"
-                      >
-                        词典
-                      </button>
-                    </div>
-                    {w.context && <div className="note-context">“{w.context}”</div>}
-                    <div className="note-date note-date-row">
-                      <span>{formatRelativeTime(w.createdAt)}</span>
-                      <span className="note-book-name" title={bookTitle(w.bookId)}>
-                        {bookTitle(w.bookId)}
-                      </span>
+                <div key={w.id} className="vocab-swipe-wrap">
+                  <div
+                    className={`note-item note-item-full ${swipedId === w.id ? 'note-item-swiped' : ''}`}
+                    onTouchStart={e => { touchStartXRef.current = e.touches[0].clientX; }}
+                    onTouchEnd={e => {
+                      const dx = e.changedTouches[0].clientX - touchStartXRef.current;
+                      if (dx < -50) setSwipedId(w.id);
+                      else if (dx > 30) setSwipedId(null);
+                    }}
+                  >
+                    <div className="note-item-main">
+                      <div className="note-word-row">
+                        <span className="note-word-tag">{w.word}</span>
+                        <button
+                          className="note-review-btn"
+                          onClick={() => incrementReview(w.id)}
+                          title="记录一次复习"
+                        >
+                          ✓ {w.reviewCount}
+                        </button>
+                        <button
+                          className="note-lookup-btn"
+                          onClick={() => openDict(w.word)}
+                          title="查词典"
+                        >
+                          词典
+                        </button>
+                      </div>
+                      {w.context && <div className="note-context">“{w.context}”</div>}
+                      <div className="note-date note-date-row">
+                        <span>{formatRelativeTime(w.createdAt)}</span>
+                        <span className="note-book-name" title={bookTitle(w.bookId)}>
+                          {bookTitle(w.bookId)}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                  <button className="note-delete" onClick={() => removeWord(w.id)} title="删除">
-                    <TrashIcon />
+                  <button
+                    className="vocab-swipe-delete"
+                    onClick={() => { setSwipedId(null); removeWord(w.id); }}
+                  >
+                    删除
                   </button>
                 </div>
               ))}

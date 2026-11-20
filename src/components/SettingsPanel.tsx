@@ -99,9 +99,11 @@ export default function SettingsPanel({ open, onClose }: Props) {
               <button
                 className="font-step-btn"
                 onClick={() => {
-                  // 整数运算避免浮点误差（1.8-0.1 会得到 1.7000000000000002，多次运算后可能跳变）
-                  const v = Math.round(settings.lineHeight * 10) - 1;
-                  updateSettings({ lineHeight: Math.max(12, v) / 10 });
+                  // 先做数字校验兜底：lineHeight 若从存储恢复成字符串/异常值，Math.round 会得到 NaN，
+                  // 进而 Math.max(12, NaN) = NaN，写入后界面会钳制到最小值（这就是"跳到最小"的根因）
+                  const n = Number(settings.lineHeight);
+                  const cur = Number.isFinite(n) ? Math.round(n * 10) : 18;
+                  updateSettings({ lineHeight: Math.max(12, Math.min(30, cur - 1)) / 10 });
                 }}
                 title="减小行高"
               >−</button>
@@ -117,8 +119,9 @@ export default function SettingsPanel({ open, onClose }: Props) {
               <button
                 className="font-step-btn"
                 onClick={() => {
-                  const v = Math.round(settings.lineHeight * 10) + 1;
-                  updateSettings({ lineHeight: Math.min(30, v) / 10 });
+                  const n = Number(settings.lineHeight);
+                  const cur = Number.isFinite(n) ? Math.round(n * 10) : 18;
+                  updateSettings({ lineHeight: Math.max(12, Math.min(30, cur + 1)) / 10 });
                 }}
                 title="增大行高"
               >＋</button>
