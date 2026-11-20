@@ -197,20 +197,33 @@ export default function NotesPage() {
           ) : (
             <div className="notes-all-list">
               {allMarks.slice(0, 200).map(h => (
-                <div key={h.id} className="note-item">
-                  <div className="note-item-main" onClick={() => goTo(h.bookId, h.cfiRange)}>
-                    <div className="note-quote">“{h.text}”</div>
-                    {h.note && <div className="note-content">{h.note}</div>}
-                    {/* 书名放到最后一行右侧（与全部单词一致），过长省略 */}
-                    <div className="note-date note-date-row">
-                      <span>{formatRelativeTime(h.updatedAt)}</span>
-                      <span className="note-book-name" title={bookTitle(h.bookId)}>
-                        {bookTitle(h.bookId)}
-                      </span>
+                <div key={h.id} className="vocab-swipe-wrap">
+                  <div
+                    className={`note-item note-item-full ${swipedId === h.id ? 'note-item-swiped' : ''}`}
+                    onTouchStart={e => { touchStartXRef.current = e.touches[0].clientX; }}
+                    onTouchEnd={e => {
+                      const dx = e.changedTouches[0].clientX - touchStartXRef.current;
+                      if (dx < -50) setSwipedId(h.id);
+                      else if (dx > 30) setSwipedId(null);
+                    }}
+                  >
+                    <div className="note-item-main" onClick={() => goTo(h.bookId, h.cfiRange)}>
+                      <div className="note-quote">“{h.text}”</div>
+                      {h.note && <div className="note-content">{h.note}</div>}
+                      {/* 书名放到最后一行右侧（与全部单词一致），过长省略 */}
+                      <div className="note-date note-date-row">
+                        <span>{formatRelativeTime(h.updatedAt)}</span>
+                        <span className="note-book-name" title={bookTitle(h.bookId)}>
+                          {bookTitle(h.bookId)}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                  <button className="note-delete" onClick={() => removeHighlight(h.id)} title="删除">
-                    <TrashIcon />
+                  <button
+                    className="vocab-swipe-delete"
+                    onClick={() => { setSwipedId(null); removeHighlight(h.id); }}
+                  >
+                    删除
                   </button>
                 </div>
               ))}
