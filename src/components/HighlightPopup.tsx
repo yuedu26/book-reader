@@ -33,6 +33,9 @@ export default function TextSelectionPopup({
     top = aboveTop >= 8 ? aboveTop : Math.max(8, viewportH * 0.35);
   }
 
+  // 注意：不再渲染全屏遮罩层。
+  // 遮罩会拦截触摸事件，导致选择手柄拖不动（这是"手指没离开就弹/无法调整选区"的主因）。
+  // 关闭行为改由 Reader 在点击工具条外时处理。
   return (
     <>
       <div className="text-selection-popup" style={{ top }}>
@@ -75,13 +78,6 @@ export default function TextSelectionPopup({
           </button>
         </div>
       </div>
-      {/* Invisible overlay to dismiss */}
-      <div
-        style={{
-          position: 'fixed', inset: 0, zIndex: 299,
-        }}
-        onClick={onClose}
-      />
     </>
   );
 }

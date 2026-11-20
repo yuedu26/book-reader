@@ -106,6 +106,8 @@ export default function Reader() {
   const scrollTargetRef = useRef<string | undefined>(); // 跨页选择切换滑动模式时的定位 CFI
   const moreMenuOpenRef = useRef(false); // 更多菜单是否打开（供 iframe 内点击判断）
   const toggleBookmarkRef = useRef<(() => void) | null>(null); // 供 iframe 下拉手势调用
+  const lastSelectionActivityRef = useRef(0); // 最近一次选区活动时间（供 touchend 判断不翻页）
+  const savedSelectionRef = useRef<{ range: Range; doc: any; text: string } | null>(null); // 选区快照（供整段按钮）
   const selectionPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null); // 选择稳定轮询
   const readingStartRef = useRef(Date.now());
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -432,8 +434,12 @@ export default function Reader() {
             }, { passive: true });
 
             doc.addEventListener('touchend', (ev: TouchEvent) => {
+              // 有选区，或最近 800ms 内有过选区活动 → 说明用户在选择，不翻页/不切工具栏
+              // （iOS 上 touchend 时选区可能还没生成，所以还要看活动时间）
               const sel = win?.getSelection?.()?.toString?.();
               if (sel && sel.trim().length > 0) return;
+              if (Date.now() - lastSelectionActivityRef.current < 800) return;
+
               const touch = ev.changedTouches[0];
               const dx = touch.clientX - touchStartX;
               const dy = touch.clientY - touchStartY;
@@ -470,17 +476,20 @@ export default function Reader() {
             });
           }
 
-          // ===== 文本选择：轮询检测「选择内容是否稳定」 =====
-          // 不再依赖 touchstart/touchend —— iOS 拖选择手柄时这些事件根本不触发，
-          // 只有选择文本内容本身在变/不变，才是判断"用户还在调整"的最可靠信号。
+          // ===== 文本选择状态机 =====
+          // IDLE(无选区) → SELECTING(内容在变) → STABLE(稳定 700ms) → SHOWN(工具条已显示)
+          // 不依赖 touchstart/touchend：iOS 拖手柄时这些事件根本不触发，
+          // 只有选区内容本身是否在变，才是"用户还在调整"的最可靠信号。
+          let selState: 'IDLE' | 'SELECTING' | 'STABLE' | 'SHOWN' = 'IDLE';
           let stableSince = 0;
           let lastText = '';
           let lastEmittedText = '';
 
-          const checkSelectionStable = () => {
+          const checkSelection = () => {
             try {
               const sel = win?.getSelection?.();
               if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+                selState = 'IDLE';
                 lastText = '';
                 stableSince = 0;
                 lastEmittedText = '';
@@ -488,37 +497,65 @@ export default function Reader() {
               }
               const text = sel.toString();
               if (!text || text.trim().length === 0) {
+                selState = 'IDLE';
                 lastText = '';
                 stableSince = 0;
                 return;
               }
+
+              // 有非空选区：记录活动时间（供 touchend 判断"别翻页"）
+              lastSelectionActivityRef.current = Date.now();
+
               if (text !== lastText) {
-                // 选择内容变了 → 用户还在调整，重置稳定计时；同时收回已弹出的工具条
+                // 选区内容变了 → 用户还在拖手柄调整
                 lastText = text;
                 stableSince = Date.now();
+                selState = 'SELECTING';
+                // 收起已弹出的工具条，避免挡手柄
                 if (lastEmittedText) {
                   lastEmittedText = '';
                   setSelectionPopup(null);
                 }
                 return;
               }
+
               if (stableSince === 0) {
                 stableSince = Date.now();
                 return;
               }
-              // 内容稳定超过 800ms 且还没弹过 → 弹工具条
-              if (Date.now() - stableSince >= 800 && text !== lastEmittedText) {
+
+              // 稳定判定：700ms 内容不变才视为"选择结束"
+              if (selState === 'SELECTING') {
+                if (Date.now() - stableSince < 700) return;
+                selState = 'STABLE';
+              }
+
+              if (selState === 'STABLE' && text !== lastEmittedText) {
                 lastEmittedText = text;
+                // 保存选区快照，供「整段」按钮使用（不依赖实时 selection）
+                try {
+                  const liveRange = sel.getRangeAt(0);
+                  savedSelectionRef.current = {
+                    range: liveRange.cloneRange(),
+                    doc,
+                    text,
+                  };
+                } catch {
+                  savedSelectionRef.current = null;
+                }
                 const range = sel.getRangeAt(0);
                 const cfiRange = rendition.cfis?.fromRange(range);
-                if (cfiRange) rendition.emit('selected', cfiRange, text);
+                if (cfiRange) {
+                  selState = 'SHOWN';
+                  rendition.emit('selected', cfiRange, text);
+                }
               }
             } catch {}
           };
 
           // 每个 document 启动一个轮询（绑定前先清掉旧的）
           if (selectionPollTimerRef.current) clearInterval(selectionPollTimerRef.current);
-          selectionPollTimerRef.current = setInterval(checkSelectionStable, 150);
+          selectionPollTimerRef.current = setInterval(checkSelection, 120);
         };
 
         // 直接对正文 body 设内联边距（内联 !important 优先级最高，确保边距真正生效）
@@ -849,6 +886,10 @@ export default function Reader() {
         '-webkit-touch-callout': 'default !important',
         '-webkit-user-select': 'text !important',
         'user-select': 'text !important',
+        // 防止长按/拖动时触发图片或链接的原生拖拽，干扰选区
+        '-webkit-user-drag': 'none !important',
+        // 滑动模式显式允许纵向滚动（避免手势被当成拖拽），分页模式保持 auto 不影响翻页
+        'touch-action': settings.pageMode === 'scrolled' ? 'pan-y !important' : 'auto !important',
       },
       'a': {
         'color': (isDark ? '#66aaff' : '#007AFF') + ' !important',
@@ -946,6 +987,19 @@ export default function Reader() {
     document.addEventListener('click', close);
     return () => document.removeEventListener('click', close);
   }, [moreMenuOpen]);
+
+  // 选择工具条：点击工具条外部关闭（替代原来的全屏遮罩，避免遮罩挡住选择手柄）
+  useEffect(() => {
+    if (!selectionPopup) return;
+    const handler = (e: Event) => {
+      const target = e.target as HTMLElement | null;
+      // 点在工具条内 → 不关闭
+      if (target?.closest?.('.text-selection-popup')) return;
+      setSelectionPopup(null);
+    };
+    document.addEventListener('pointerdown', handler, true);
+    return () => document.removeEventListener('pointerdown', handler, true);
+  }, [selectionPopup]);
 
   // Navigate prev/next
   const goPrev = () => renditionRef.current?.prev();
@@ -1072,37 +1126,65 @@ export default function Reader() {
   };
 
   // 选中整段（解决跨页选择：整段可跨页选中）
-  // 直接遍历 iframe 内的真实 selection/range，不绕 CFI（CFI 跨 iframe 时容易失效）
+  // 优先使用「选区快照」——工具条弹出后实时 selection 可能已丢失，快照更可靠
   const handleSelectParagraph = () => {
     if (!selectionPopup) return;
     try {
       const rendition = renditionRef.current;
-      const contents = rendition?.getContents?.() || [];
-      const blockTags = ['P', 'DIV', 'LI', 'SECTION', 'BLOCKQUOTE', 'TD', 'H1', 'H2', 'H3'];
-      for (const c of contents) {
-        const doc = c?.document;
-        const win = doc?.defaultView;
-        if (!doc || !win) continue;
-        const sel = win.getSelection?.();
-        if (!sel || sel.isCollapsed || sel.rangeCount === 0) continue;
+      const blockTags = ['P', 'DIV', 'LI', 'SECTION', 'BLOCKQUOTE', 'TD', 'H1', 'H2', 'H3', 'ARTICLE'];
 
-        const range = sel.getRangeAt(0);
-        let node: any = range.commonAncestorContainer;
-        while (node && node !== doc.body && !blockTags.includes(node.nodeName)) {
-          node = node.parentNode;
+      let range: Range | null = null;
+      let doc: any = null;
+
+      // 1) 优先用快照
+      const saved = savedSelectionRef.current;
+      if (saved?.range && saved?.doc) {
+        range = saved.range;
+        doc = saved.doc;
+      }
+
+      // 2) 快照不可用时，回退到遍历 iframe 内的实时选区
+      if (!range || !doc) {
+        const contents = rendition?.getContents?.() || [];
+        for (const c of contents) {
+          const d = c?.document;
+          const w = d?.defaultView;
+          if (!d || !w) continue;
+          const s = w.getSelection?.();
+          if (!s || s.isCollapsed || s.rangeCount === 0) continue;
+          range = s.getRangeAt(0);
+          doc = d;
+          break;
         }
-        if (!node || node === doc.body) continue;
+      }
 
-        const paraRange = doc.createRange();
-        paraRange.selectNodeContents(node);
-        sel.removeAllRanges();
-        sel.addRange(paraRange);
+      if (!range || !doc) return;
 
-        const cfiRange = rendition.cfis?.fromRange(paraRange);
-        if (cfiRange) {
-          setSelectionPopup({ ...selectionPopup, cfiRange, text: paraRange.toString() });
-        }
-        return;
+      // 向上找段落级元素
+      let node: any = range.commonAncestorContainer;
+      if (node?.nodeType === 3) node = node.parentNode;
+      while (node && node !== doc.body && !blockTags.includes(node.nodeName)) {
+        node = node.parentNode;
+      }
+      if (!node || node === doc.body) return;
+
+      const paraRange = doc.createRange();
+      paraRange.selectNodeContents(node);
+
+      // 同步更新 iframe 内的可视选区
+      const win = doc.defaultView;
+      const liveSel = win?.getSelection?.();
+      if (liveSel) {
+        liveSel.removeAllRanges();
+        liveSel.addRange(paraRange);
+      }
+
+      const cfiRange = rendition.cfis?.fromRange(paraRange);
+      if (cfiRange) {
+        const text = paraRange.toString();
+        setSelectionPopup({ ...selectionPopup, cfiRange, text });
+        // 更新快照，方便连续操作
+        savedSelectionRef.current = { range: paraRange.cloneRange(), doc, text };
       }
     } catch (e) {
       console.warn('[Reader] select paragraph failed:', e);
