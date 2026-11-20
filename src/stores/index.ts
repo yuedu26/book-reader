@@ -84,6 +84,8 @@ interface AppState extends PersistedState {
 
   // 设置
   updateSettings: (u: Partial<ReadingSettings>) => void;
+  // 行距按步进调整（在 store 内基于最新值计算，避免按钮闭包读到旧值/异常值导致跳变）
+  adjustLineHeight: (delta: number) => void;
 
   // 备份
   setLastBackup: (ts: number) => void;
@@ -214,6 +216,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     const next = { ...s, settings: { ...s.settings, ...u } };
     persist(next);
     return next;
+  }),
+
+  // 行距按步进调整：永远基于 store 里的最新值计算，避免闭包旧值 / NaN 导致跳到最小值
+  adjustLineHeight: (delta) => set((s) => {
+    const n = Number(s.settings.lineHeight);
+    const cur = Number.isFinite(n) ? Math.round(n * 10) : 18; // 兜底 1.8
+    const next = Math.max(12, Math.min(30, cur + delta));    // 1.2 ~ 3.0
+    const out = { ...s, settings: { ...s.settings, lineHeight: next / 10 } };
+    persist(out);
+    return out;
   }),
 
   // 备份

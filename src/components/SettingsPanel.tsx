@@ -18,6 +18,7 @@ interface Props {
 export default function SettingsPanel({ open, onClose }: Props) {
   const settings = useAppStore(s => s.settings);
   const updateSettings = useAppStore(s => s.updateSettings);
+  const adjustLineHeight = useAppStore(s => s.adjustLineHeight);
 
   return (
     <>
@@ -98,13 +99,7 @@ export default function SettingsPanel({ open, onClose }: Props) {
             <div className="settings-row">
               <button
                 className="font-step-btn"
-                onClick={() => {
-                  // 先做数字校验兜底：lineHeight 若从存储恢复成字符串/异常值，Math.round 会得到 NaN，
-                  // 进而 Math.max(12, NaN) = NaN，写入后界面会钳制到最小值（这就是"跳到最小"的根因）
-                  const n = Number(settings.lineHeight);
-                  const cur = Number.isFinite(n) ? Math.round(n * 10) : 18;
-                  updateSettings({ lineHeight: Math.max(12, Math.min(30, cur - 1)) / 10 });
-                }}
+                onClick={() => adjustLineHeight(-1)}
                 title="减小行高"
               >−</button>
               <input
@@ -118,11 +113,7 @@ export default function SettingsPanel({ open, onClose }: Props) {
               />
               <button
                 className="font-step-btn"
-                onClick={() => {
-                  const n = Number(settings.lineHeight);
-                  const cur = Number.isFinite(n) ? Math.round(n * 10) : 18;
-                  updateSettings({ lineHeight: Math.max(12, Math.min(30, cur + 1)) / 10 });
-                }}
+                onClick={() => adjustLineHeight(1)}
                 title="增大行高"
               >＋</button>
               <span className="settings-value">{settings.lineHeight.toFixed(1)}</span>

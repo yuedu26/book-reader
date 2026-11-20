@@ -1210,13 +1210,28 @@ export default function Reader() {
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
                   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     
+    // 查词：优先调起欧路词典；1.2 秒内页面没跳转（说明未安装欧路）则回退到在线词典
+    const lookupWord = word || text;
+    const fallbackUrl = isIOS
+      ? `https://dict.youdao.com/result?word=${encodeURIComponent(lookupWord)}&lang=en`
+      : `https://dict.youdao.com/search?q=${encodeURIComponent(lookupWord)}`;
+
     if (isIOS) {
-      // iOS：调起欧路词典查词（用已导入的离线 mdx 词库，无需联网）
-      const lookupWord = word || text;
+      let jumped = false;
+      const onHide = () => {
+        jumped = true;
+        document.removeEventListener('visibilitychange', onHide);
+      };
+      document.addEventListener('visibilitychange', onHide);
+      setTimeout(() => {
+        document.removeEventListener('visibilitychange', onHide);
+        if (!jumped && !document.hidden) {
+          window.open(fallbackUrl, '_blank');
+        }
+      }, 1200);
       window.location.href = `eudic://dict/${encodeURIComponent(lookupWord)}`;
     } else {
-      // 非 iOS：打开有道词典在线查词
-      window.open(`https://dict.youdao.com/search?q=${encodeURIComponent(word || text)}`, '_blank');
+      window.open(fallbackUrl, '_blank');
     }
     
     setSelectionPopup(null);
@@ -1319,7 +1334,10 @@ export default function Reader() {
 
       {/* Bottom toolbar */}
       <div className={`reader-toolbar reader-toolbar-bottom ${!showToolbar ? 'toolbar-hidden-bottom' : ''}`}>
-        <button className="toolbar-btn" onClick={() => setTocOpen(true)}>
+        <button
+          className={`toolbar-btn ${tocOpen ? 'toolbar-btn-active' : ''}`}
+          onClick={() => setTocOpen(prev => !prev)}
+        >
           <ListIcon />
         </button>
         <span className="progress-text">

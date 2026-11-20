@@ -122,7 +122,6 @@ export default function TOCPanel({
           <div className="panel-tabs">
             <button className="panel-tab active">目录</button>
           </div>
-          <button className="toolbar-btn" onClick={onClose}>✕</button>
         </div>
         <div className="side-panel-body">
           {toc.length === 0 ? (
