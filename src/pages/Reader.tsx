@@ -87,9 +87,15 @@ export default function Reader() {
   const [bookmarkPageMap, setBookmarkPageMap] = useState<Record<string, number>>({}); // 书签 id -> 页码
   const [selectionPopup, setSelectionPopup] = useState<{
     y: number; text: string; cfiRange: string; isSingleWord: boolean;
+    // 点击已有标注时进入「标注操作」模式：划线按钮变删除、想法按钮变编辑想法
+    mark?: { highlightId: string; hasNote: boolean };
   } | null>(null);
   const [noteDialog, setNoteDialog] = useState<{
     highlightId: string; text: string; existingNote?: string;
+  } | null>(null);
+  // 删除标注时的二次确认（仅当该标注带想法）
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    highlightId: string; cfiRange: string; hasNote: boolean;
   } | null>(null);
   const [atEnd, setAtEnd] = useState(false); // 是否在全书最后一页
   const [finishedOpen, setFinishedOpen] = useState(false); // 读完完成页
@@ -590,24 +596,33 @@ export default function Reader() {
           }, 300);
         });
 
-        // 监听高亮点击（使用最新 store 快照，避免闭包拿到初始 highlights）
+        // 监听高亮点击：先弹工具条（进入标注操作模式），而不是直接弹编辑框
         rendition.on('markClicked', (cfiRange: string, data: any) => {
           // 同一位置可能同时有「划线」和「想法」两条，优先匹配带想法的
           const candidates = useAppStore.getState().highlights.filter(h => h.cfiRange === cfiRange);
           const hl = candidates.find(h => h.note && h.note.trim().length > 0) || candidates[0];
-          if (hl) {
-            // 锁定遮罩 800ms，防止 iOS tap 的后续 click 立刻关掉弹窗
-            noteDialogLockRef.current = true;
-            if (noteDialogLockTimerRef.current) clearTimeout(noteDialogLockTimerRef.current);
-            noteDialogLockTimerRef.current = setTimeout(() => {
-              noteDialogLockRef.current = false;
-            }, 800);
-            setNoteDialog({
-              highlightId: hl.id,
-              text: hl.text,
-              existingNote: hl.note,
-            });
+          if (!hl) return;
+
+          // 定位到该标注所在的矩形
+          const range = rendition.getRange(cfiRange);
+          let y = window.innerHeight * 0.4;
+          if (range) {
+            const rect = range.getBoundingClientRect();
+            const viewerRect = container.getBoundingClientRect();
+            y = rect.bottom - viewerRect.top + 8;
           }
+
+          popupShownAtRef.current = Date.now();
+          setSelectionPopup({
+            y,
+            text: hl.text,
+            cfiRange,
+            isSingleWord: false,
+            mark: {
+              highlightId: hl.id,
+              hasNote: !!(hl.note && hl.note.trim().length > 0),
+            },
+          });
         });
 
         // 恢复已有划线/想法（划线用背景高亮，想法用蓝色下划线）
@@ -1241,15 +1256,29 @@ export default function Reader() {
     setSelectionPopup(null);
   };
 
-  // Handle add note
+  // Handle add note（新建想法 / 编辑已有想法）
   const handleAddNote = () => {
-    if (!selectionPopup || !bookId) return;
-    
-    // 确保 text 是字符串
-    const text = typeof selectionPopup.text === 'string' 
-      ? selectionPopup.text 
+    if (!selectionPopup) return;
+
+    // 标注模式：直接打开该标注的编辑器（编辑已有想法）
+    if (selectionPopup.mark) {
+      const hl = useAppStore.getState().highlights.find(h => h.id === selectionPopup.mark!.highlightId);
+      if (hl) {
+        setSelectionPopup(null);
+        // 延迟一点，避免关闭工具条与打开面板的点击冲突
+        setTimeout(() => {
+          setNoteDialog({ highlightId: hl.id, text: hl.text, existingNote: hl.note });
+        }, 50);
+      }
+      return;
+    }
+
+    // 普通模式：新建想法标注
+    if (!bookId) return;
+    const text = typeof selectionPopup.text === 'string'
+      ? selectionPopup.text
       : String(selectionPopup.text || '');
-    
+
     const hl: Highlight = {
       id: generateId(),
       bookId,
@@ -1265,7 +1294,9 @@ export default function Reader() {
     // 写想法用「下划线」标记（蓝色），与「划线」的背景高亮区分，两者独立
     renditionRef.current?.annotations.add('underline', hl.cfiRange, {}, undefined, undefined, noteStyles());
     setSelectionPopup(null);
-    setNoteDialog({ highlightId: hl.id, text: hl.text });
+    setTimeout(() => {
+      setNoteDialog({ highlightId: hl.id, text: hl.text });
+    }, 50);
   };
 
   // 从 epub.js range 中提取包含选中词的完整句子作为例句
@@ -1383,19 +1414,64 @@ export default function Reader() {
     setNoteDialog(null);
   };
 
-  // 删除当前划线
-  const handleDeleteHighlight = () => {
-    if (!noteDialog) return;
-    const hl = useAppStore.getState().highlights.find(h => h.id === noteDialog.highlightId);
-    if (hl) {
+  // 删除标注（工具条上的「删除」按钮）
+  // - 无想法：直接删除
+  // - 有想法：弹二次确认（删除划线和想法 / 仅删除想法）
+  const handleDeleteMark = () => {
+    const mark = selectionPopup?.mark;
+    if (!mark) return;
+    const hl = useAppStore.getState().highlights.find(h => h.id === mark.highlightId);
+    if (!hl) {
+      setSelectionPopup(null);
+      return;
+    }
+
+    if (!mark.hasNote) {
       removeHighlight(hl.id);
       try {
         renditionRef.current?.annotations.remove(hl.cfiRange, 'highlight');
       } catch (e) {
         console.warn('[Reader] Remove annotation failed:', e);
       }
+      setSelectionPopup(null);
+      return;
     }
-    setNoteDialog(null);
+
+    // 带想法 → 二次确认
+    setSelectionPopup(null);
+    setDeleteConfirm({ highlightId: hl.id, cfiRange: hl.cfiRange, hasNote: true });
+  };
+
+  // 确认删除：划线和想法一起删
+  const confirmDeleteBoth = () => {
+    if (!deleteConfirm) return;
+    const hl = useAppStore.getState().highlights.find(h => h.id === deleteConfirm.highlightId);
+    if (hl) {
+      removeHighlight(hl.id);
+      try {
+        renditionRef.current?.annotations.remove(hl.cfiRange, 'underline');
+        renditionRef.current?.annotations.remove(hl.cfiRange, 'highlight');
+      } catch (e) {
+        console.warn('[Reader] Remove annotation failed:', e);
+      }
+    }
+    setDeleteConfirm(null);
+  };
+
+  // 确认删除：仅删除想法（保留划线 → 改回 highlight 样式）
+  const confirmDeleteNoteOnly = () => {
+    if (!deleteConfirm) return;
+    const hl = useAppStore.getState().highlights.find(h => h.id === deleteConfirm.highlightId);
+    if (hl) {
+      updateHighlight(hl.id, { note: '', updatedAt: Date.now() });
+      try {
+        renditionRef.current?.annotations.remove(hl.cfiRange, 'underline');
+        renditionRef.current?.annotations.add('highlight', hl.cfiRange, {}, undefined, undefined, highlightStyles());
+      } catch (e) {
+        console.warn('[Reader] Replace annotation failed:', e);
+      }
+    }
+    setDeleteConfirm(null);
   };
 
   // 导出划线/想法为 TXT（notesOnly 只导带想法的条目）
@@ -1504,48 +1580,56 @@ export default function Reader() {
         </div>
       )}
 
-      {/* Selection popup：固定在屏幕底部，避开 iOS 原生选择菜单 */}
+      {/* 选择/标注工具条 */}
       {selectionPopup && (
         <TextSelectionPopup
           y={selectionPopup.y}
           text={selectionPopup.text}
           isSingleWord={selectionPopup.isSingleWord}
+          mark={selectionPopup.mark}
           onCopy={handleCopy}
           onHighlight={handleHighlight}
           onNote={handleAddNote}
           onLookup={handleLookup}
           onSelectParagraph={handleSelectParagraph}
-          onClose={() => setSelectionPopup(null)}
+          onDeleteMark={handleDeleteMark}
         />
       )}
 
-      {/* Note dialog */}
+      {/* 想法编辑器：底部面板（贴近键盘，引用与输入区分开） */}
       {noteDialog && (
         <div
-          className="modal-overlay"
+          className="note-editor-overlay"
           onClick={() => {
-            // 锁定期间忽略（iOS tap 的 touchend 触发弹窗后，随后的 click 会落到遮罩上）
+            // 锁定期间忽略（iOS tap 的 touchend 触发后，随后的 click 会落到遮罩上）
             if (noteDialogLockRef.current) return;
             setNoteDialog(null);
           }}
         >
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <h3>批注</h3>
-            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12, fontStyle: 'italic' }}>
-              "{noteDialog.text}"
-            </p>
+          <div className="note-editor-wrap" onClick={e => e.stopPropagation()}>
             <NoteEditor
               initial={noteDialog.existingNote || ''}
+              quote={noteDialog.text}
               onSave={handleSaveNote}
               onCancel={() => setNoteDialog(null)}
             />
-            <button
-              className="btn btn-danger"
-              onClick={handleDeleteHighlight}
-              style={{ width: '100%', marginTop: 8 }}
-            >
-              删除划线
-            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 删除带想法的标注：二次确认 */}
+      {deleteConfirm && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <h3>删除标注</h3>
+            <p style={{ fontSize: 14, color: 'var(--text-secondary)', margin: '8px 0 16px', lineHeight: 1.5 }}>
+              这条标注包含想法，请选择删除方式：
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button className="btn btn-danger" onClick={confirmDeleteBoth}>删除划线和想法</button>
+              <button className="btn btn-secondary" onClick={confirmDeleteNoteOnly}>仅删除想法</button>
+              <button className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>取消</button>
+            </div>
           </div>
         </div>
       )}
@@ -1603,25 +1687,49 @@ export default function Reader() {
   );
 }
 
-// Note editor sub-component
-function NoteEditor({ initial, onSave, onCancel }: {
+// 想法编辑器：底部面板，顶部「取消 | 想法 | 保存」，引用与输入区分开
+function NoteEditor({ initial, quote, onSave, onCancel }: {
   initial: string;
+  quote: string;
   onSave: (note: string) => void;
   onCancel: () => void;
 }) {
   const [text, setText] = useState(initial);
+  const dirty = text !== initial;
+
+  const handleCancel = () => {
+    if (dirty) {
+      // 有未保存修改时二次确认
+      if (!window.confirm('想法还未保存，确定放弃修改吗？')) return;
+    }
+    onCancel();
+  };
+
   return (
-    <>
+    <div className="note-editor-sheet">
+      <div className="note-editor-header">
+        <button className="note-editor-btn" onClick={handleCancel}>取消</button>
+        <span className="note-editor-title">想法</span>
+        <button
+          className="note-editor-btn note-editor-save"
+          onClick={() => onSave(text)}
+          disabled={!text.trim()}
+          style={!text.trim() ? { opacity: 0.4 } : undefined}
+        >
+          保存
+        </button>
+      </div>
+
+      {/* 引用原文：与输入区区分开 */}
+      <div className="note-editor-quote">"{quote}"</div>
+
       <textarea
+        className="note-editor-textarea"
         value={text}
         onChange={e => setText(e.target.value)}
-        placeholder="写下你的批注..."
+        placeholder="写下你的想法…"
         autoFocus
       />
-      <div className="modal-actions">
-        <button className="btn btn-secondary" onClick={onCancel}>取消</button>
-        <button className="btn btn-primary" onClick={() => onSave(text)}>保存</button>
-      </div>
-    </>
+    </div>
   );
 }
