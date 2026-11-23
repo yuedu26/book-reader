@@ -97,6 +97,10 @@ export default function Reader() {
   const [deleteConfirm, setDeleteConfirm] = useState<{
     highlightId: string; cfiRange: string; hasNote: boolean;
   } | null>(null);
+  // 想法编辑器草稿内容（用于判断是否有未保存修改）
+  const [noteDraft, setNoteDraft] = useState('');
+  // 未保存确认弹窗
+  const [noteUnsavedConfirm, setNoteUnsavedConfirm] = useState(false);
   const [atEnd, setAtEnd] = useState(false); // 是否在全书最后一页
   const [finishedOpen, setFinishedOpen] = useState(false); // 读完完成页
   const [moreMenuOpen, setMoreMenuOpen] = useState(false); // 右上角更多菜单
@@ -1265,6 +1269,7 @@ export default function Reader() {
       const hl = useAppStore.getState().highlights.find(h => h.id === selectionPopup.mark!.highlightId);
       if (hl) {
         setSelectionPopup(null);
+        setNoteDraft(hl.note || '');
         // 延迟一点，避免关闭工具条与打开面板的点击冲突
         setTimeout(() => {
           setNoteDialog({ highlightId: hl.id, text: hl.text, existingNote: hl.note });
@@ -1294,6 +1299,7 @@ export default function Reader() {
     // 写想法用「下划线」标记（蓝色），与「划线」的背景高亮区分，两者独立
     renditionRef.current?.annotations.add('underline', hl.cfiRange, {}, undefined, undefined, noteStyles());
     setSelectionPopup(null);
+    setNoteDraft('');
     setTimeout(() => {
       setNoteDialog({ highlightId: hl.id, text: hl.text });
     }, 50);
@@ -1412,6 +1418,36 @@ export default function Reader() {
     if (!noteDialog) return;
     updateHighlight(noteDialog.highlightId, { note, updatedAt: Date.now() });
     setNoteDialog(null);
+    setNoteDraft('');
+    setNoteUnsavedConfirm(false);
+  };
+
+  // 请求关闭想法编辑器：有未保存修改时弹确认（点「取消」或点编辑区外都走这里）
+  const requestCloseNoteEditor = () => {
+    if (!noteDialog) return;
+    const initial = noteDialog.existingNote || '';
+    if (noteDraft !== initial) {
+      setNoteUnsavedConfirm(true);
+      return;
+    }
+    setNoteDialog(null);
+    setNoteDraft('');
+  };
+
+  // 不保存，直接关闭
+  const discardNoteAndClose = () => {
+    setNoteUnsavedConfirm(false);
+    setNoteDialog(null);
+    setNoteDraft('');
+  };
+
+  // 保存并关闭
+  const saveNoteAndClose = () => {
+    if (!noteDialog) return;
+    updateHighlight(noteDialog.highlightId, { note: noteDraft, updatedAt: Date.now() });
+    setNoteUnsavedConfirm(false);
+    setNoteDialog(null);
+    setNoteDraft('');
   };
 
   // 删除标注（工具条上的「删除」按钮）
@@ -1603,7 +1639,8 @@ export default function Reader() {
           onClick={() => {
             // 锁定期间忽略（iOS tap 的 touchend 触发后，随后的 click 会落到遮罩上）
             if (noteDialogLockRef.current) return;
-            setNoteDialog(null);
+            // 点编辑区外 → 有未保存修改则弹确认
+            requestCloseNoteEditor();
           }}
         >
           <div className="note-editor-wrap" onClick={e => e.stopPropagation()}>
@@ -1611,8 +1648,25 @@ export default function Reader() {
               initial={noteDialog.existingNote || ''}
               quote={noteDialog.text}
               onSave={handleSaveNote}
-              onCancel={() => setNoteDialog(null)}
+              onCancel={requestCloseNoteEditor}
+              onChange={setNoteDraft}
             />
+          </div>
+        </div>
+      )}
+
+      {/* 未保存想法确认 */}
+      {noteUnsavedConfirm && (
+        <div className="modal-overlay" onClick={() => setNoteUnsavedConfirm(false)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <h3>想法未保存</h3>
+            <p style={{ fontSize: 14, color: 'var(--text-secondary)', margin: '8px 0 16px', lineHeight: 1.5 }}>
+              你有未保存的想法，是否保存？
+            </p>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={discardNoteAndClose}>不保存</button>
+              <button className="btn btn-primary" onClick={saveNoteAndClose}>保存</button>
+            </div>
           </div>
         </div>
       )}
@@ -1688,27 +1742,33 @@ export default function Reader() {
 }
 
 // 想法编辑器：底部面板，顶部「取消 | 想法 | 保存」，引用与输入区分开
-function NoteEditor({ initial, quote, onSave, onCancel }: {
+function NoteEditor({ initial, quote, onSave, onCancel, onChange }: {
   initial: string;
   quote: string;
   onSave: (note: string) => void;
   onCancel: () => void;
+  onChange: (text: string) => void;
 }) {
   const [text, setText] = useState(initial);
-  const dirty = text !== initial;
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const handleCancel = () => {
-    if (dirty) {
-      // 有未保存修改时二次确认
-      if (!window.confirm('想法还未保存，确定放弃修改吗？')) return;
-    }
-    onCancel();
+  // iOS 上 autoFocus 常被忽略，用 ref + 延迟聚焦确保软键盘自动弹出
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try { textareaRef.current?.focus(); } catch {}
+    }, 120);
+    return () => clearTimeout(t);
+  }, []);
+
+  const handleChange = (v: string) => {
+    setText(v);
+    onChange(v);
   };
 
   return (
     <div className="note-editor-sheet">
       <div className="note-editor-header">
-        <button className="note-editor-btn" onClick={handleCancel}>取消</button>
+        <button className="note-editor-btn" onClick={onCancel}>取消</button>
         <span className="note-editor-title">想法</span>
         <button
           className="note-editor-btn note-editor-save"
@@ -1724,9 +1784,10 @@ function NoteEditor({ initial, quote, onSave, onCancel }: {
       <div className="note-editor-quote">"{quote}"</div>
 
       <textarea
+        ref={textareaRef}
         className="note-editor-textarea"
         value={text}
-        onChange={e => setText(e.target.value)}
+        onChange={e => handleChange(e.target.value)}
         placeholder="写下你的想法…"
         autoFocus
       />
