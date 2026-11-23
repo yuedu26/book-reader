@@ -108,6 +108,8 @@ export default function Reader() {
   const toggleBookmarkRef = useRef<(() => void) | null>(null); // 供 iframe 下拉手势调用
   const lastSelectionActivityRef = useRef(0); // 最近一次选区活动时间（供 touchend 判断不翻页）
   const savedSelectionRef = useRef<{ range: Range; doc: any; text: string; cfiRange?: string } | null>(null); // 选区会话快照
+  const selectionPopupRef = useRef<typeof selectionPopup>(null); // 工具条当前状态（供 iframe 内点击判断）
+  const popupShownAtRef = useRef(0); // 工具条显示时间（避免点击瞬间被 selected 事件隐藏）
   const selectionPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null); // 选择稳定轮询
   const readingStartRef = useRef(Date.now());
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -438,6 +440,15 @@ export default function Reader() {
               // （iOS 上 touchend 时选区可能还没生成，所以还要看活动时间）
               const sel = win?.getSelection?.()?.toString?.();
               if (sel && sel.trim().length > 0) return;
+
+              // 工具条显示中：点阅读区（iframe 内）空白 → 关闭工具条
+              // 直接查 DOM 而不是 ref：ref 有 React 异步更新延迟，快速点击会漏判
+              // 必须放在 800ms 选区活动保护【之前】，否则刚选完的 800ms 内点空白关不掉
+              if (document.querySelector('.text-selection-popup')) {
+                setSelectionPopup(null);
+                return;
+              }
+
               if (Date.now() - lastSelectionActivityRef.current < 800) return;
 
               const touch = ev.changedTouches[0];
@@ -521,9 +532,9 @@ export default function Reader() {
           }
         });
 
-        // ===== 文本选择：基于 epub.js 自己的 selected 事件（它内部已监听 selectionchange + 250ms 防抖 + 生成 CFI） =====
-        // 我们只在它之上做「去抖」：连续触发时不断重置，稳定后才显示工具条。
-        // 之前自己写的轮询用 rendition.cfis（不存在）导致永远拿不到 CFI，属于无效代码。
+        // ===== 文本选择：基于 epub.js 自己的 selected 事件 =====
+        // epub.js 内部已监听 selectionchange + 250ms 防抖 + 用 EpubCFI 生成 cfiRange。
+        // 我们只在其上再延迟 400ms 显示（接近 iOS 原生菜单的响应速度，又能避免拖手柄停顿误弹）。
         let selectionShowTimer: ReturnType<typeof setTimeout> | null = null;
 
         rendition.on('selected', (cfiRange: string, contents: any) => {
@@ -534,7 +545,7 @@ export default function Reader() {
           const text = range.toString().trim();
           if (!text) return;
 
-          // 1) 立即保存「选区会话」快照（供整段/划线/想法使用，不依赖后续实时 selection）
+          // 1) 立即保存「选区会话」快照（供整段/划线/想法使用）
           const ownerDoc =
             range.commonAncestorContainer?.ownerDocument ||
             range.startContainer?.ownerDocument ||
@@ -544,17 +555,20 @@ export default function Reader() {
             ? { range: range.cloneRange(), doc: ownerDoc, text, cfiRange }
             : null;
 
-          // 2) 选区变了 → 先收起已显示的工具条（只隐藏 UI，不清除选区、不阻断拖动）
-          setSelectionPopup(null);
+          // 2) 选区变了 → 收起已显示的工具条（只隐藏 UI，不清除选区、不阻断拖动）
+          //    但刚显示 500ms 内不隐藏：避免用户点击工具条按钮的那一刻被隐藏掉（点击落空）
+          if (Date.now() - popupShownAtRef.current > 500) {
+            setSelectionPopup(null);
+          }
 
-          // 3) 重新计时：稳定 1200ms 没有新的 selected 才显示工具条
+          // 3) 重新计时：稳定 400ms 没有新的 selected 才显示
           if (selectionShowTimer) clearTimeout(selectionShowTimer);
           selectionShowTimer = setTimeout(() => {
             if (destroyed) return;
             try {
-              // 显示前重新校验快照是否仍有效（节点仍在文档中）
               const snap = savedSelectionRef.current;
               if (!snap) return;
+              // 显示前校验快照节点仍在文档中
               const node = snap.range.commonAncestorContainer;
               if (!node || !snap.doc?.contains?.(node)) return;
 
@@ -562,8 +576,8 @@ export default function Reader() {
               const rect = r.getBoundingClientRect();
               if (!rect || (rect.width === 0 && rect.height === 0)) return;
               const viewerRect = container.getBoundingClientRect();
-              // 单个英文单词（可含连字符/撇号）才显示「查词」按钮
               const isSingleWord = /^[A-Za-z]+(?:['’-][A-Za-z]+)*$/.test(snap.text);
+              popupShownAtRef.current = Date.now();
               setSelectionPopup({
                 y: rect.bottom - viewerRect.top + 8,
                 text: snap.text,
@@ -573,7 +587,7 @@ export default function Reader() {
             } catch (e) {
               console.warn('[Reader] show selection popup failed:', e);
             }
-          }, 1200);
+          }, 400);
         });
 
         // 监听高亮点击（使用最新 store 快照，避免闭包拿到初始 highlights）
@@ -950,12 +964,17 @@ export default function Reader() {
     return () => document.removeEventListener('click', close);
   }, [moreMenuOpen]);
 
-  // 选择工具条：点击工具条外部关闭（替代原来的全屏遮罩，避免遮罩挡住选择手柄）
+  // 同步工具条状态到 ref（供 iframe 内点击判断）
+  useEffect(() => {
+    selectionPopupRef.current = selectionPopup;
+  }, [selectionPopup]);
+
+  // 选择工具条：点击工具条外部关闭（替代全屏遮罩，避免遮罩挡住选择手柄）
+  // 注意：这只覆盖「外层页面」的点击；iframe 内的点击由 touchend 逻辑处理
   useEffect(() => {
     if (!selectionPopup) return;
     const handler = (e: Event) => {
       const target = e.target as HTMLElement | null;
-      // 点在工具条内 → 不关闭
       if (target?.closest?.('.text-selection-popup')) return;
       setSelectionPopup(null);
     };

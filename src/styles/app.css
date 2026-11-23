@@ -812,7 +812,8 @@ a { color: var(--primary); text-decoration: none; }
 /* ===== Text Selection Popup ===== */
 .text-selection-popup {
   position: fixed;
-  z-index: 300;
+  /* 必须远高于 iframe 所在层，iOS 上 iframe 会「穿透」较低的 z-index 抢走点击 */
+  z-index: 9999;
   left: 0;
   right: 0;
   margin: 0 auto;
@@ -828,6 +829,9 @@ a { color: var(--primary); text-decoration: none; }
   flex-direction: column;
   gap: 6px;
   animation: popIn 0.2s ease;
+  pointer-events: auto;
+  /* 独立层叠上下文，避免被祖先或 iframe 影响 */
+  isolation: isolate;
 }
 
 .popup-actions-row {
