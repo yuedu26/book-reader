@@ -561,7 +561,7 @@ export default function Reader() {
             setSelectionPopup(null);
           }
 
-          // 3) 重新计时：稳定 400ms 没有新的 selected 才显示
+          // 3) 重新计时：稳定 300ms 没有新的 selected 才显示（更接近 iOS 原生菜单手感）
           if (selectionShowTimer) clearTimeout(selectionShowTimer);
           selectionShowTimer = setTimeout(() => {
             if (destroyed) return;
@@ -587,7 +587,7 @@ export default function Reader() {
             } catch (e) {
               console.warn('[Reader] show selection popup failed:', e);
             }
-          }, 400);
+          }, 300);
         });
 
         // 监听高亮点击（使用最新 store 快照，避免闭包拿到初始 highlights）
