@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ePub from 'epubjs';
 import { useAppStore, themeMap } from '../stores';
@@ -1655,9 +1655,9 @@ export default function Reader() {
         </div>
       )}
 
-      {/* 未保存想法确认 */}
+      {/* 未保存想法确认（用 modal-overlay-top 盖在想法编辑器之上） */}
       {noteUnsavedConfirm && (
-        <div className="modal-overlay" onClick={() => setNoteUnsavedConfirm(false)}>
+        <div className="modal-overlay modal-overlay-top" onClick={() => setNoteUnsavedConfirm(false)}>
           <div className="modal-box" onClick={e => e.stopPropagation()}>
             <h3>想法未保存</h3>
             <p style={{ fontSize: 14, color: 'var(--text-secondary)', margin: '8px 0 16px', lineHeight: 1.5 }}>
@@ -1752,11 +1752,16 @@ function NoteEditor({ initial, quote, onSave, onCancel, onChange }: {
   const [text, setText] = useState(initial);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // iOS 上 autoFocus 常被忽略，用 ref + 延迟聚焦确保软键盘自动弹出
-  useEffect(() => {
+  // iOS 要求 focus() 在「用户手势执行栈」内调用才会弹出软键盘。
+  // useLayoutEffect 在 DOM 更新后、浏览器重绘前同步执行，最接近手势时机（setTimeout 会脱离手势被拒绝）。
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    try { el.focus(); } catch {}
+    // 兜底：部分 iOS 版本需要微延迟再试一次
     const t = setTimeout(() => {
-      try { textareaRef.current?.focus(); } catch {}
-    }, 120);
+      try { el.focus(); } catch {}
+    }, 60);
     return () => clearTimeout(t);
   }, []);
 

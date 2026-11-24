@@ -981,6 +981,9 @@ a { color: var(--primary); text-decoration: none; }
   padding: 20px;
 }
 
+/* 需要盖在想法编辑器（z-index 9998）之上的确认框 */
+.modal-overlay-top { z-index: 10000; }
+
 .modal-box {
   background: var(--card-bg);
   border-radius: 16px;
