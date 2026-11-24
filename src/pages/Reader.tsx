@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import ePub from 'epubjs';
 import { useAppStore, themeMap } from '../stores';
@@ -99,6 +100,8 @@ export default function Reader() {
   } | null>(null);
   // 想法编辑器草稿内容（用于判断是否有未保存修改）
   const [noteDraft, setNoteDraft] = useState('');
+  // 想法编辑器 textarea 引用（用于在手势栈内直接聚焦，触发 iOS 软键盘）
+  const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
   // 未保存确认弹窗
   const [noteUnsavedConfirm, setNoteUnsavedConfirm] = useState(false);
   const [atEnd, setAtEnd] = useState(false); // 是否在全书最后一页
@@ -1270,10 +1273,11 @@ export default function Reader() {
       if (hl) {
         setSelectionPopup(null);
         setNoteDraft(hl.note || '');
-        // 延迟一点，避免关闭工具条与打开面板的点击冲突
-        setTimeout(() => {
+        // flushSync 强制同步渲染 → 随后立即 focus，仍在用户手势栈内，iOS 才会弹键盘
+        flushSync(() => {
           setNoteDialog({ highlightId: hl.id, text: hl.text, existingNote: hl.note });
-        }, 50);
+        });
+        try { noteTextareaRef.current?.focus(); } catch {}
       }
       return;
     }
@@ -1300,9 +1304,11 @@ export default function Reader() {
     renditionRef.current?.annotations.add('underline', hl.cfiRange, {}, undefined, undefined, noteStyles());
     setSelectionPopup(null);
     setNoteDraft('');
-    setTimeout(() => {
+    // flushSync 强制同步渲染 → 随后立即 focus，仍在用户手势栈内，iOS 才会弹键盘
+    flushSync(() => {
       setNoteDialog({ highlightId: hl.id, text: hl.text });
-    }, 50);
+    });
+    try { noteTextareaRef.current?.focus(); } catch {}
   };
 
   // 从 epub.js range 中提取包含选中词的完整句子作为例句
@@ -1650,6 +1656,7 @@ export default function Reader() {
               onSave={handleSaveNote}
               onCancel={requestCloseNoteEditor}
               onChange={setNoteDraft}
+              textareaRef={noteTextareaRef}
             />
           </div>
         </div>
@@ -1742,15 +1749,15 @@ export default function Reader() {
 }
 
 // 想法编辑器：底部面板，顶部「取消 | 想法 | 保存」，引用与输入区分开
-function NoteEditor({ initial, quote, onSave, onCancel, onChange }: {
+function NoteEditor({ initial, quote, onSave, onCancel, onChange, textareaRef }: {
   initial: string;
   quote: string;
   onSave: (note: string) => void;
   onCancel: () => void;
   onChange: (text: string) => void;
+  textareaRef: React.MutableRefObject<HTMLTextAreaElement | null>;
 }) {
   const [text, setText] = useState(initial);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // iOS 要求 focus() 在「用户手势执行栈」内调用才会弹出软键盘。
   // useLayoutEffect 在 DOM 更新后、浏览器重绘前同步执行，最接近手势时机（setTimeout 会脱离手势被拒绝）。
