@@ -87,12 +87,19 @@ export default function Reader() {
   const [tocPageMap, setTocPageMap] = useState<Record<string, number>>({}); // 目录项 href -> 起始页码
   const [bookmarkPageMap, setBookmarkPageMap] = useState<Record<string, number>>({}); // 书签 id -> 页码
   const [selectionPopup, setSelectionPopup] = useState<{
-    y: number; text: string; cfiRange: string; isSingleWord: boolean;
+    y: number;              // 选区底部（用于向下定位）
+    rectTop: number;        // 选区顶部（用于向上定位，多行选择时更准）
+    text: string;
+    cfiRange: string;
+    isSingleWord: boolean;
     // 点击已有标注时进入「标注操作」模式：划线按钮变删除、想法按钮变编辑想法
     mark?: { highlightId: string; hasNote: boolean };
   } | null>(null);
   const [noteDialog, setNoteDialog] = useState<{
-    highlightId: string; text: string; existingNote?: string;
+    highlightId?: string;   // 有值 = 编辑已有标注；无值 = 新建（保存时才真正创建）
+    text: string;
+    cfiRange: string;       // 新建时用于创建标注
+    existingNote?: string;
   } | null>(null);
   // 删除标注时的二次确认（仅当该标注带想法）
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -492,6 +499,18 @@ export default function Reader() {
                 handleTap(touch.clientX);
               }
             }, { passive: true });
+
+            // 选区被清空（点空白、系统关闭选择菜单）→ 立即关闭工具条
+            // 用 selectionchange 比 touchend 可靠：iOS 上第一次点击常被系统菜单吞掉
+            doc.addEventListener('selectionchange', () => {
+              try {
+                const sel = win?.getSelection?.();
+                const isEmpty = !sel || sel.isCollapsed || sel.toString().trim().length === 0;
+                if (isEmpty && document.querySelector('.text-selection-popup')) {
+                  setSelectionPopup(null);
+                }
+              } catch {}
+            }, { passive: true });
           } else {
             doc.addEventListener('click', (ev: MouseEvent) => {
               const sel = win?.getSelection?.()?.toString?.();
@@ -593,6 +612,7 @@ export default function Reader() {
               popupShownAtRef.current = Date.now();
               setSelectionPopup({
                 y: rect.bottom - viewerRect.top + 8,
+                rectTop: rect.top - viewerRect.top,
                 text: snap.text,
                 cfiRange: snap.cfiRange || '',
                 isSingleWord,
@@ -613,15 +633,18 @@ export default function Reader() {
           // 定位到该标注所在的矩形
           const range = rendition.getRange(cfiRange);
           let y = window.innerHeight * 0.4;
+          let rectTop = y;
           if (range) {
             const rect = range.getBoundingClientRect();
             const viewerRect = container.getBoundingClientRect();
             y = rect.bottom - viewerRect.top + 8;
+            rectTop = rect.top - viewerRect.top;
           }
 
           popupShownAtRef.current = Date.now();
           setSelectionPopup({
             y,
+            rectTop,
             text: hl.text,
             cfiRange,
             isSingleWord: false,
@@ -1275,38 +1298,28 @@ export default function Reader() {
         setNoteDraft(hl.note || '');
         // flushSync 强制同步渲染 → 随后立即 focus，仍在用户手势栈内，iOS 才会弹键盘
         flushSync(() => {
-          setNoteDialog({ highlightId: hl.id, text: hl.text, existingNote: hl.note });
+          setNoteDialog({
+            highlightId: hl.id,
+            text: hl.text,
+            cfiRange: hl.cfiRange,
+            existingNote: hl.note,
+          });
         });
         try { noteTextareaRef.current?.focus(); } catch {}
       }
       return;
     }
 
-    // 普通模式：新建想法标注
+    // 普通模式：打开空白编辑器（此时【不创建任何标注】，保存时才创建）
     if (!bookId) return;
     const text = typeof selectionPopup.text === 'string'
       ? selectionPopup.text
       : String(selectionPopup.text || '');
 
-    const hl: Highlight = {
-      id: generateId(),
-      bookId,
-      chapterHref: book?.currentChapterHref || '',
-      cfiRange: selectionPopup.cfiRange,
-      text,
-      color: MARK_COLOR,
-      note: '',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    addHighlight(hl);
-    // 写想法用「下划线」标记（蓝色），与「划线」的背景高亮区分，两者独立
-    renditionRef.current?.annotations.add('underline', hl.cfiRange, {}, undefined, undefined, noteStyles());
     setSelectionPopup(null);
     setNoteDraft('');
-    // flushSync 强制同步渲染 → 随后立即 focus，仍在用户手势栈内，iOS 才会弹键盘
     flushSync(() => {
-      setNoteDialog({ highlightId: hl.id, text: hl.text });
+      setNoteDialog({ text, cfiRange: selectionPopup.cfiRange });
     });
     try { noteTextareaRef.current?.focus(); } catch {}
   };
@@ -1419,10 +1432,32 @@ export default function Reader() {
     setSelectionPopup(null);
   };
 
-  // Save note
+  // Save note：编辑已有标注 → 更新；新建 → 此时才创建标注（空内容则不创建）
   const handleSaveNote = (note: string) => {
     if (!noteDialog) return;
-    updateHighlight(noteDialog.highlightId, { note, updatedAt: Date.now() });
+    const trimmed = note.trim();
+
+    if (noteDialog.highlightId) {
+      // 编辑已有标注
+      updateHighlight(noteDialog.highlightId, { note: trimmed, updatedAt: Date.now() });
+    } else if (trimmed && bookId) {
+      // 新建：只有真正写了内容才创建标注（避免"没写就退出"留下空标注）
+      const hl: Highlight = {
+        id: generateId(),
+        bookId,
+        chapterHref: book?.currentChapterHref || '',
+        cfiRange: noteDialog.cfiRange,
+        text: noteDialog.text,
+        color: MARK_COLOR,
+        note: trimmed,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      addHighlight(hl);
+      renditionRef.current?.annotations.add('underline', hl.cfiRange, {}, undefined, undefined, noteStyles());
+    }
+    // 新建 + 空内容 → 什么都不创建
+
     setNoteDialog(null);
     setNoteDraft('');
     setNoteUnsavedConfirm(false);
@@ -1447,10 +1482,29 @@ export default function Reader() {
     setNoteDraft('');
   };
 
-  // 保存并关闭
+  // 保存并关闭（逻辑与 handleSaveNote 一致：新建时才创建标注）
   const saveNoteAndClose = () => {
     if (!noteDialog) return;
-    updateHighlight(noteDialog.highlightId, { note: noteDraft, updatedAt: Date.now() });
+    const trimmed = noteDraft.trim();
+
+    if (noteDialog.highlightId) {
+      updateHighlight(noteDialog.highlightId, { note: trimmed, updatedAt: Date.now() });
+    } else if (trimmed && bookId) {
+      const hl: Highlight = {
+        id: generateId(),
+        bookId,
+        chapterHref: book?.currentChapterHref || '',
+        cfiRange: noteDialog.cfiRange,
+        text: noteDialog.text,
+        color: MARK_COLOR,
+        note: trimmed,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      addHighlight(hl);
+      renditionRef.current?.annotations.add('underline', hl.cfiRange, {}, undefined, undefined, noteStyles());
+    }
+
     setNoteUnsavedConfirm(false);
     setNoteDialog(null);
     setNoteDraft('');
@@ -1626,6 +1680,7 @@ export default function Reader() {
       {selectionPopup && (
         <TextSelectionPopup
           y={selectionPopup.y}
+          rectTop={selectionPopup.rectTop}
           text={selectionPopup.text}
           isSingleWord={selectionPopup.isSingleWord}
           mark={selectionPopup.mark}

@@ -1,7 +1,8 @@
 import React from 'react';
 
 interface Props {
-  y: number;
+  y: number;        // 选区底部（相对 viewer）
+  rectTop: number;  // 选区顶部（相对 viewer）——多行选择时向上定位必须用它
   text: string;
   isSingleWord: boolean;
   /** 点击已有标注时进入标注操作模式 */
@@ -15,13 +16,14 @@ interface Props {
 }
 
 export default function TextSelectionPopup({
-  y, isSingleWord, mark,
+  y, rectTop, isSingleWord, mark,
   onCopy, onHighlight, onNote, onLookup, onSelectParagraph, onDeleteMark,
 }: Props) {
-  // 工具条定位策略：
-  // 1) 下方空间够 → 放选中文字下方 64px（iOS 菜单多在上方，下方很安全）
-  // 2) 下方不够 → 放上方 220px（避开 iOS 上方菜单）
-  // 3) 上下都不够 → 兜底放到屏幕 35% 高度处
+  // 定位策略：
+  // 1) 下方空间够 → 放选区底部下方 64px
+  // 2) 下方不够 → 放到【选区顶部】上方 220px（多行选择时必须用 rectTop，
+  //    否则工具条会落在选区范围内、被 iOS 上方菜单遮挡）
+  // 3) 上下都不够 → 兜底屏幕 35% 处
   const viewportH = typeof window !== 'undefined' ? window.innerHeight : 800;
   const GAP_BELOW = 64;
   const GAP_ABOVE = 220;
@@ -29,7 +31,7 @@ export default function TextSelectionPopup({
   let top = y + GAP_BELOW;
   const fitsBelow = top + TOOLBAR_H <= viewportH;
   if (!fitsBelow) {
-    const aboveTop = y - GAP_ABOVE;
+    const aboveTop = (rectTop || y) - GAP_ABOVE;
     top = aboveTop >= 8 ? aboveTop : Math.max(8, viewportH * 0.35);
   }
 
