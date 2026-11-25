@@ -500,13 +500,22 @@ export default function Reader() {
               }
             }, { passive: true });
 
-            // 选区被清空（点空白、系统关闭选择菜单）→ 立即关闭工具条
-            // 用 selectionchange 比 touchend 可靠：iOS 上第一次点击常被系统菜单吞掉
+            // 选区被清空（点空白、系统关闭选择菜单）→ 关闭工具条
+            // 注意两个排除条件，否则「点击划线」时工具条会闪烁：
+            //  1) 标注操作模式（mark）下选区本来就是空的，不能因此关闭
+            //  2) 刚打开 600ms 内跳过（避免与 markClicked 的时序竞争）
             doc.addEventListener('selectionchange', () => {
               try {
                 const sel = win?.getSelection?.();
                 const isEmpty = !sel || sel.isCollapsed || sel.toString().trim().length === 0;
-                if (isEmpty && document.querySelector('.text-selection-popup')) {
+                if (!isEmpty) return;
+
+                const current = selectionPopupRef.current;
+                if (!current) return;                 // 本来就没显示
+                if (current.mark) return;             // 标注操作模式不据此关闭
+                if (Date.now() - popupShownAtRef.current < 600) return;  // 刚打开，忽略
+
+                if (document.querySelector('.text-selection-popup')) {
                   setSelectionPopup(null);
                 }
               } catch {}
