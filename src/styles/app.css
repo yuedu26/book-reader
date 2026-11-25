@@ -19,18 +19,22 @@
   --bg: #C7EDCC;
   --text: #333333;
   --card-bg: #d5f0d9;
+  /* 浅色主题必须单独定义边框色：默认的浅灰白在彩色背景上几乎不可见 */
+  --border: rgba(0, 0, 0, 0.13);
 }
 
 [data-theme="yellow"] {
   --bg: #FAF9DE;
   --text: #333333;
   --card-bg: #fdfbe8;
+  --border: rgba(0, 0, 0, 0.12);
 }
 
 [data-theme="brown"] {
   --bg: #FFF2E2;
   --text: #333333;
   --card-bg: #fff5ea;
+  --border: rgba(0, 0, 0, 0.12);
 }
 
 [data-theme="dark"] {
@@ -1029,7 +1033,7 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .btn-primary { background: var(--primary); color: #fff; }
-.btn-secondary { background: var(--border); color: var(--text); }
+.btn-secondary { background: rgba(0, 0, 0, 0.06); color: var(--text); }
 .btn-danger { background: var(--danger); color: #fff; }
 
 /* ===== Vocabulary Page ===== */
@@ -1051,7 +1055,8 @@ a { color: var(--primary); text-decoration: none; }
   padding: 6px 14px;
   border-radius: 16px;
   border: none;
-  background: var(--border);
+  /* 这里是「填充底色」不是「边框」，单独用更浅的值，避免跟随 --border 变深显脏 */
+  background: rgba(0, 0, 0, 0.05);
   color: var(--text-secondary);
   font-size: 13px;
   white-space: nowrap;

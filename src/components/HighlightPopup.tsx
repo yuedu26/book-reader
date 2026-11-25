@@ -21,12 +21,11 @@ export default function TextSelectionPopup({
 }: Props) {
   // 定位策略：
   // 1) 下方空间够 → 放选区底部下方 64px
-  // 2) 下方不够 → 放到【选区顶部】上方 220px（多行选择时必须用 rectTop，
-  //    否则工具条会落在选区范围内、被 iOS 上方菜单遮挡）
-  // 3) 上下都不够 → 兜底屏幕 35% 处
+  // 2) 下方不够 → 放到【选区顶部】上方 64px（必须用 rectTop，避免落在选区范围内）
+  // 3) 上方也不够 → 兜底屏幕 35% 处
   const viewportH = typeof window !== 'undefined' ? window.innerHeight : 800;
   const GAP_BELOW = 64;
-  const GAP_ABOVE = 220;
+  const GAP_ABOVE = 64;
   const TOOLBAR_H = 86;
   let top = y + GAP_BELOW;
   const fitsBelow = top + TOOLBAR_H <= viewportH;
