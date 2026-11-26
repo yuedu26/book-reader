@@ -11,6 +11,9 @@
   --success: #4CAF50;
   --shadow: 0 2px 8px rgba(0,0,0,0.08);
   --radius: 12px;
+  /* 笔记/生词卡片「浮起」底色：浅色主题用半透明白叠加在页面底色上会变更亮，
+     由此与背景形成层次（不需要边框） */
+  --card-surface: rgba(255, 255, 255, 0.60);
   --tab-height: 64px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -44,6 +47,8 @@
   --text-muted: #666666;
   --border: #333333;
   --card-bg: #2C2C2E;
+  /* 深色下用实色卡片（半透明白会发灰） */
+  --card-surface: #2C2C2E;
   --shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 
@@ -1091,11 +1096,10 @@ a { color: var(--primary); text-decoration: none; }
 
 .vocab-card {
   position: relative;
-  background: var(--card-bg);
+  background: var(--card-surface);
   border-radius: var(--radius);
   padding: 14px;
-  border: 1px solid var(--border);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   transition: transform 0.2s ease;
   z-index: 1;
 }
@@ -1325,11 +1329,10 @@ a { color: var(--primary); text-decoration: none; }
   gap: 8px;
   padding: 14px;
   border-radius: var(--radius);
-  background: var(--card-bg);
-  /* 卡片底色与页面底色太接近时（白底主题完全同色），靠边框区分边界 */
-  border: 1px solid var(--border);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
-  margin: 0 16px 10px;
+  /* 用「更亮的浮起底色 + 轻阴影」表达层次，不用边框（避免两条线紧贴） */
+  background: var(--card-surface);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  margin: 0 20px 12px;
 }
 
 .note-item-main {
@@ -1643,10 +1646,9 @@ a { color: var(--primary); text-decoration: none; }
   width: 100%;
   margin: 0;
   padding: 14px;
-  background: var(--card-bg);
+  background: var(--card-surface);
   border-radius: var(--radius);
-  border: 1px solid var(--border);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   transition: transform 0.2s ease;
   position: relative;
   z-index: 1;
@@ -1680,6 +1682,19 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .notes-all-list { padding: 4px 0 20px; }
+
+/* 全部笔记 / 全部单词：卡片左右留白与其他页面标题对齐（20px） */
+.notes-all-list .note-item {
+  margin: 0 20px 12px;
+}
+
+.notes-all-list .vocab-swipe-wrap {
+  margin: 0 20px 12px;
+}
+
+.notes-all-list .vocab-swipe-wrap .note-item-full {
+  margin: 0;
+}
 
 .notes-tabs {
   display: flex;
