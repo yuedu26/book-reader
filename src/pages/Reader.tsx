@@ -437,6 +437,10 @@ export default function Reader() {
             let touchStartY = 0;
             let touchStartTime = 0;
             let pullTriggered = false;
+            // 本次触摸「按下的那一刻」是否已存在选区。
+            // iOS 拖动选择手柄时会让选区短暂折叠，touchend 再看就变空了，
+            // 用按下时的快照才能正确判断"这次触摸是不是在操作选区"。
+            let hadSelectionAtTouchStart = false;
 
             doc.addEventListener('touchstart', (ev: TouchEvent) => {
               const touch = ev.touches[0];
@@ -444,6 +448,9 @@ export default function Reader() {
               touchStartY = touch.clientY;
               touchStartTime = Date.now();
               pullTriggered = false;
+              const s = win?.getSelection?.();
+              hadSelectionAtTouchStart =
+                !!(s && !s.isCollapsed && s.toString().trim().length > 0);
             }, { passive: true });
 
             // 下拉添加书签（仅分页模式）：向下拖动超过阈值时提示，松手即切换书签
@@ -470,6 +477,14 @@ export default function Reader() {
               );
               if (hasSelection) return;
 
+              // 按下那一刻有选区 → 本次触摸是在操作选区（比如拖手柄导致选区短暂折叠），
+              // 绝不能翻页，否则重渲染会清空选区。
+              // 注意：这里用按下时的快照，而不是此刻的实时状态。
+              if (hadSelectionAtTouchStart) {
+                hadSelectionAtTouchStart = false;
+                return;
+              }
+
               // 工具条显示中但无选区（例如标注操作模式）→ 点阅读区关闭
               // 「刚点过标注」的 500ms 内跳过，避免和 markClicked 抢时序导致闪烁
               if (document.querySelector('.text-selection-popup')) {
@@ -478,12 +493,6 @@ export default function Reader() {
                 }
                 return;
               }
-
-              // 最近 3 秒内有过选区活动 → 绝不翻页。
-              // 关键：iOS 第二次拖动手柄时，选区会短暂「折叠」，此时 hasSelection=false；
-              // 若保护期太短（原来 800ms），就会走进下面的翻页逻辑，
-              // 翻页重渲染会直接清空选区（表现为"第二次一碰手柄整个选区消失"）。
-              if (Date.now() - lastSelectionActivityRef.current < 3000) return;
 
               const touch = ev.changedTouches[0];
               const dx = touch.clientX - touchStartX;
