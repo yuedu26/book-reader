@@ -460,46 +460,15 @@ export default function Reader() {
             }, { passive: true });
 
             doc.addEventListener('touchend', (ev: TouchEvent) => {
-              // ===== 有选区时：轻点 = 取消选择（浏览器默认语义），拖动 = 保持选择 =====
+              // ===== 有选区时：不做任何事（不取消、不翻页）=====
+              // 取消选择完全交给浏览器默认行为：点选区外空白 → 浏览器自动清空选区
+              // → selectionchange 触发 → 关闭工具条。
+              // 这样碰手柄/点选区内都不会误清选区，可以反复拖动调整范围。
               const liveSel = win?.getSelection?.();
               const hasSelection = !!(
                 liveSel && !liveSel.isCollapsed && liveSel.toString().trim().length > 0
               );
-              if (hasSelection) {
-                const t0 = ev.changedTouches[0];
-                const mdx = Math.abs(t0.clientX - touchStartX);
-                const mdy = Math.abs(t0.clientY - touchStartY);
-
-                // 只有「轻点」才考虑取消；拖动/长按一律保持选区
-                if (mdx < 10 && mdy < 10) {
-                  // 判断点击是否落在「选区矩形（各方向外扩 30px）」内。
-                  // 手柄就位于选区边缘，外扩后能完整覆盖手柄区域；
-                  // 只有点到远离选区的空白处，才视为"取消选择"意图。
-                  let inOrNear = false;
-                  try {
-                    const rects = liveSel.getRangeAt(0).getClientRects();
-                    const PAD = 30;
-                    for (let i = 0; i < rects.length; i++) {
-                      const r = rects[i];
-                      if (
-                        t0.clientX >= r.left - PAD && t0.clientX <= r.right + PAD &&
-                        t0.clientY >= r.top - PAD && t0.clientY <= r.bottom + PAD
-                      ) {
-                        inOrNear = true;
-                        break;
-                      }
-                    }
-                  } catch {}
-
-                  if (!inOrNear) {
-                    // 点在选区外（远处空白）→ 取消选择
-                    try { liveSel.removeAllRanges(); } catch {}
-                    setSelectionPopup(null);
-                  }
-                }
-                // 其余情况（拖动 / 碰手柄）→ 什么都不做，保持选区
-                return;
-              }
+              if (hasSelection) return;
 
               // 工具条显示中但无选区（例如标注操作模式）→ 点阅读区关闭
               // 「刚点过标注」的 500ms 内跳过，避免和 markClicked 抢时序导致闪烁
