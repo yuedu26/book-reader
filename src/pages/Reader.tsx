@@ -504,9 +504,11 @@ export default function Reader() {
                 return;
               }
 
-              // 最近 800ms 内有过选区活动 → 不翻页/不切工具栏
-              // （iOS 上 touchend 时选区可能还没生成，所以还要看活动时间）
-              if (Date.now() - lastSelectionActivityRef.current < 800) return;
+              // 最近 3 秒内有过选区活动 → 绝不翻页。
+              // 关键：iOS 第二次拖动手柄时，选区会短暂「折叠」，此时 hasSelection=false；
+              // 若保护期太短（原来 800ms），就会走进下面的翻页逻辑，
+              // 翻页重渲染会直接清空选区（表现为"第二次一碰手柄整个选区消失"）。
+              if (Date.now() - lastSelectionActivityRef.current < 3000) return;
 
               const touch = ev.changedTouches[0];
               const dx = touch.clientX - touchStartX;
@@ -545,7 +547,12 @@ export default function Reader() {
               try {
                 const sel = win?.getSelection?.();
                 const isEmpty = !sel || sel.isCollapsed || sel.toString().trim().length === 0;
-                if (!isEmpty) return;
+                // 选区还在（包括拖动手柄过程中的变化）→ 刷新活动时间，
+                // 让 touchend 的「3 秒内不翻页」保护期始终有效
+                if (!isEmpty) {
+                  lastSelectionActivityRef.current = Date.now();
+                  return;
+                }
 
                 const current = selectionPopupRef.current;
                 if (!current) return;                 // 本来就没显示
