@@ -469,12 +469,29 @@ export default function Reader() {
                 const t0 = ev.changedTouches[0];
                 const mdx = Math.abs(t0.clientX - touchStartX);
                 const mdy = Math.abs(t0.clientY - touchStartY);
-                // 轻点（位移 < 10px）→ 清除选区 + 关闭工具条
-                if (mdx < 10 && mdy < 10) {
+
+                // 判断是否点在「选择手柄」附近（首行左端 / 末行右端）。
+                // 手柄是 WebKit 内部 UI，触摸它时 touch 事件照常触发但位移很小；
+                // 若不排除，第二次拖手柄会被误判成"轻点"而取消选择。
+                let nearHandle = false;
+                try {
+                  const rects = liveSel.getRangeAt(0).getClientRects();
+                  if (rects.length > 0) {
+                    const first = rects[0];
+                    const last = rects[rects.length - 1];
+                    const HIT = 28; // 手柄可点半径
+                    nearHandle =
+                      (Math.abs(t0.clientX - first.left) < HIT && Math.abs(t0.clientY - first.top) < HIT) ||
+                      (Math.abs(t0.clientX - last.right) < HIT && Math.abs(t0.clientY - last.bottom) < HIT);
+                  }
+                } catch {}
+
+                // 轻点（位移 < 10px）且不在手柄附近 → 清除选区 + 关闭工具条
+                if (!nearHandle && mdx < 10 && mdy < 10) {
                   try { liveSel.removeAllRanges(); } catch {}
                   setSelectionPopup(null);
                 }
-                // 拖动（调整选择范围）→ 什么都不做，保持选区
+                // 拖动 / 手柄操作 → 什么都不做，保持选区
                 return;
               }
 
