@@ -22,8 +22,8 @@ export default function TextSelectionPopup({
   // 定位策略：
   // 1) 下方空间够 → 放选区底部（最后一行）下方 64px
   // 2) 下方不够 → 放到【选区顶部（第一行）】上方 64px
-  // 3) 上下都不够（选区几乎占满整屏）→ 兜底到屏幕 22% 处
-  //    （尽量靠上，避开 iOS 原生菜单——它通常出现在选区中部/上方的选中位置附近）
+  // 3) 上下都不够（选区几乎占满整屏）→ 兜底到屏幕 35% 处
+  //    （比贴顶更自然，同时与 iOS 原生菜单保持约 30-80px 间距）
   const viewportH = typeof window !== 'undefined' ? window.innerHeight : 800;
   const GAP_BELOW = 64;
   const GAP_ABOVE = 64;
@@ -34,7 +34,7 @@ export default function TextSelectionPopup({
     // top 是工具条「顶部」坐标，要再减去自身高度，
     // 才能保证工具条【底部】距离选区第一行正好 GAP_ABOVE（否则会侵入选区）
     const aboveTop = (rectTop || y) - GAP_ABOVE - TOOLBAR_H;
-    top = aboveTop >= 8 ? aboveTop : Math.max(8, viewportH * 0.22);
+    top = aboveTop >= 8 ? aboveTop : Math.max(8, viewportH * 0.35);
   }
 
   return (
