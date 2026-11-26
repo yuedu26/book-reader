@@ -130,6 +130,7 @@ export default function Reader() {
   const savedSelectionRef = useRef<{ range: Range; doc: any; text: string; cfiRange?: string } | null>(null); // 选区会话快照
   const selectionPopupRef = useRef<typeof selectionPopup>(null); // 工具条当前状态（供 iframe 内点击判断）
   const popupShownAtRef = useRef(0); // 工具条显示时间（避免点击瞬间被 selected 事件隐藏）
+  const markClickedAtRef = useRef(0); // 最近一次点击标注的时间（避免 touchend 的翻页逻辑清掉工具条造成闪烁）
   const selectionPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null); // 选择稳定轮询
   const readingStartRef = useRef(Date.now());
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -399,6 +400,9 @@ export default function Reader() {
               setMoreMenuOpen(false);
               return;
             }
+            // 刚点过标注（markClicked 500ms 内）→ 这次点击是"打开标注工具条"，
+            // 不能再走翻页/切工具栏逻辑，否则会把刚弹出的工具条清掉（闪烁）
+            if (Date.now() - markClickedAtRef.current < 500) return;
             setSelectionPopup(null);
             // 翻页热区扩大（左右各 40%），方便左手单手操作
             if (screenX < width * 0.4) {
@@ -464,8 +468,11 @@ export default function Reader() {
               // 工具条显示中：点阅读区（iframe 内）空白 → 关闭工具条
               // 直接查 DOM 而不是 ref：ref 有 React 异步更新延迟，快速点击会漏判
               // 必须放在 800ms 选区活动保护【之前】，否则刚选完的 800ms 内点空白关不掉
+              // 但「刚点过标注」的 500ms 内要跳过，避免和 markClicked 抢时序导致闪烁
               if (document.querySelector('.text-selection-popup')) {
-                setSelectionPopup(null);
+                if (Date.now() - markClickedAtRef.current >= 500) {
+                  setSelectionPopup(null);
+                }
                 return;
               }
 
@@ -650,6 +657,9 @@ export default function Reader() {
             rectTop = rect.top - viewerRect.top;
           }
 
+          // 记录点击时间：touchend 的翻页/切工具栏逻辑在 500ms 内要跳过，
+          // 否则它会 setSelectionPopup(null) 把刚弹出的工具条清掉（表现为"闪一下"）
+          markClickedAtRef.current = Date.now();
           popupShownAtRef.current = Date.now();
           setSelectionPopup({
             y,
