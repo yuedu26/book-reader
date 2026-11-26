@@ -470,28 +470,34 @@ export default function Reader() {
                 const mdx = Math.abs(t0.clientX - touchStartX);
                 const mdy = Math.abs(t0.clientY - touchStartY);
 
-                // 判断是否点在「选择手柄」附近（首行左端 / 末行右端）。
-                // 手柄是 WebKit 内部 UI，触摸它时 touch 事件照常触发但位移很小；
-                // 若不排除，第二次拖手柄会被误判成"轻点"而取消选择。
-                let nearHandle = false;
-                try {
-                  const rects = liveSel.getRangeAt(0).getClientRects();
-                  if (rects.length > 0) {
-                    const first = rects[0];
-                    const last = rects[rects.length - 1];
-                    const HIT = 28; // 手柄可点半径
-                    nearHandle =
-                      (Math.abs(t0.clientX - first.left) < HIT && Math.abs(t0.clientY - first.top) < HIT) ||
-                      (Math.abs(t0.clientX - last.right) < HIT && Math.abs(t0.clientY - last.bottom) < HIT);
-                  }
-                } catch {}
+                // 只有「轻点」才考虑取消；拖动/长按一律保持选区
+                if (mdx < 10 && mdy < 10) {
+                  // 判断点击是否落在「选区矩形（各方向外扩 30px）」内。
+                  // 手柄就位于选区边缘，外扩后能完整覆盖手柄区域；
+                  // 只有点到远离选区的空白处，才视为"取消选择"意图。
+                  let inOrNear = false;
+                  try {
+                    const rects = liveSel.getRangeAt(0).getClientRects();
+                    const PAD = 30;
+                    for (let i = 0; i < rects.length; i++) {
+                      const r = rects[i];
+                      if (
+                        t0.clientX >= r.left - PAD && t0.clientX <= r.right + PAD &&
+                        t0.clientY >= r.top - PAD && t0.clientY <= r.bottom + PAD
+                      ) {
+                        inOrNear = true;
+                        break;
+                      }
+                    }
+                  } catch {}
 
-                // 轻点（位移 < 10px）且不在手柄附近 → 清除选区 + 关闭工具条
-                if (!nearHandle && mdx < 10 && mdy < 10) {
-                  try { liveSel.removeAllRanges(); } catch {}
-                  setSelectionPopup(null);
+                  if (!inOrNear) {
+                    // 点在选区外（远处空白）→ 取消选择
+                    try { liveSel.removeAllRanges(); } catch {}
+                    setSelectionPopup(null);
+                  }
                 }
-                // 拖动 / 手柄操作 → 什么都不做，保持选区
+                // 其余情况（拖动 / 碰手柄）→ 什么都不做，保持选区
                 return;
               }
 
