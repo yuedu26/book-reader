@@ -20,8 +20,8 @@ export default function TextSelectionPopup({
   onCopy, onHighlight, onNote, onLookup, onSelectParagraph, onDeleteMark,
 }: Props) {
   // 定位策略：
-  // 1) 下方空间够 → 放选区底部下方 64px
-  // 2) 下方不够 → 放到【选区顶部】上方 64px（必须用 rectTop，避免落在选区范围内）
+  // 1) 下方空间够 → 放选区底部（最后一行）下方 64px
+  // 2) 下方不够 → 放到【选区顶部（第一行）】上方 64px
   // 3) 上方也不够 → 兜底屏幕 35% 处
   const viewportH = typeof window !== 'undefined' ? window.innerHeight : 800;
   const GAP_BELOW = 64;
@@ -30,7 +30,9 @@ export default function TextSelectionPopup({
   let top = y + GAP_BELOW;
   const fitsBelow = top + TOOLBAR_H <= viewportH;
   if (!fitsBelow) {
-    const aboveTop = (rectTop || y) - GAP_ABOVE;
+    // top 是工具条「顶部」坐标，要再减去自身高度，
+    // 才能保证工具条【底部】距离选区第一行正好 GAP_ABOVE（否则会侵入选区）
+    const aboveTop = (rectTop || y) - GAP_ABOVE - TOOLBAR_H;
     top = aboveTop >= 8 ? aboveTop : Math.max(8, viewportH * 0.35);
   }
 
