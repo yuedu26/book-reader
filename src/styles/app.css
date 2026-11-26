@@ -1094,7 +1094,8 @@ a { color: var(--primary); text-decoration: none; }
   background: var(--card-bg);
   border-radius: var(--radius);
   padding: 14px;
-  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
   transition: transform 0.2s ease;
   z-index: 1;
 }
@@ -1322,11 +1323,12 @@ a { color: var(--primary); text-decoration: none; }
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  /* 完全复用「按书查看」卡片样式 */
   padding: 14px;
   border-radius: var(--radius);
   background: var(--card-bg);
-  box-shadow: var(--shadow);
+  /* 卡片底色与页面底色太接近时（白底主题完全同色），靠边框区分边界 */
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
   margin: 0 16px 10px;
 }
 
@@ -1643,7 +1645,8 @@ a { color: var(--primary); text-decoration: none; }
   padding: 14px;
   background: var(--card-bg);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
   transition: transform 0.2s ease;
   position: relative;
   z-index: 1;
