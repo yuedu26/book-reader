@@ -460,15 +460,26 @@ export default function Reader() {
             }, { passive: true });
 
             doc.addEventListener('touchend', (ev: TouchEvent) => {
-              // 有选区，或最近 800ms 内有过选区活动 → 说明用户在选择，不翻页/不切工具栏
-              // （iOS 上 touchend 时选区可能还没生成，所以还要看活动时间）
-              const sel = win?.getSelection?.()?.toString?.();
-              if (sel && sel.trim().length > 0) return;
+              // ===== 有选区时：轻点 = 取消选择（浏览器默认语义），拖动 = 保持选择 =====
+              const liveSel = win?.getSelection?.();
+              const hasSelection = !!(
+                liveSel && !liveSel.isCollapsed && liveSel.toString().trim().length > 0
+              );
+              if (hasSelection) {
+                const t0 = ev.changedTouches[0];
+                const mdx = Math.abs(t0.clientX - touchStartX);
+                const mdy = Math.abs(t0.clientY - touchStartY);
+                // 轻点（位移 < 10px）→ 清除选区 + 关闭工具条
+                if (mdx < 10 && mdy < 10) {
+                  try { liveSel.removeAllRanges(); } catch {}
+                  setSelectionPopup(null);
+                }
+                // 拖动（调整选择范围）→ 什么都不做，保持选区
+                return;
+              }
 
-              // 工具条显示中：点阅读区（iframe 内）空白 → 关闭工具条
-              // 直接查 DOM 而不是 ref：ref 有 React 异步更新延迟，快速点击会漏判
-              // 必须放在 800ms 选区活动保护【之前】，否则刚选完的 800ms 内点空白关不掉
-              // 但「刚点过标注」的 500ms 内要跳过，避免和 markClicked 抢时序导致闪烁
+              // 工具条显示中但无选区（例如标注操作模式）→ 点阅读区关闭
+              // 「刚点过标注」的 500ms 内跳过，避免和 markClicked 抢时序导致闪烁
               if (document.querySelector('.text-selection-popup')) {
                 if (Date.now() - markClickedAtRef.current >= 500) {
                   setSelectionPopup(null);
@@ -476,6 +487,8 @@ export default function Reader() {
                 return;
               }
 
+              // 最近 800ms 内有过选区活动 → 不翻页/不切工具栏
+              // （iOS 上 touchend 时选区可能还没生成，所以还要看活动时间）
               if (Date.now() - lastSelectionActivityRef.current < 800) return;
 
               const touch = ev.changedTouches[0];
