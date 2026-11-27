@@ -62,7 +62,10 @@ export default function TOCPanel({
               onClick={(e) => { e.stopPropagation(); toggleCollapse(item.href); }}
               title={isCollapsed ? '展开' : '收起'}
             >
-              ▾
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
             </button>
           ) : (
             <span className="toc-toggle-placeholder" />
@@ -80,15 +83,7 @@ export default function TOCPanel({
           </button>
         </div>
 
-        {/* 当前读到的位置标记 */}
-        {isCurrent && (
-          <div className="toc-current">
-            <span className="toc-current-label">📖 当前读到</span>
-            {tocPageMap?.[item.href] ? (
-              <span className="toc-current-page">P{tocPageMap[item.href]}</span>
-            ) : null}
-          </div>
-        )}
+        {/* 当前章节不用额外区块标记：由 .toc-row-current 的左竖条 + 主题色表达 */}
 
         {/* 该书签章节下挂的书签条目 */}
         {bms.map(bm => (
@@ -120,13 +115,12 @@ export default function TOCPanel({
     <>
       <div className={`side-panel-overlay ${open ? 'open' : ''}`} onClick={onClose} />
       <div className={`side-panel ${open ? 'open' : ''}`}>
+        {/* iOS 导航栏：居中标题 + 右侧操作按钮 */}
         <div className="side-panel-header">
-          <div className="panel-tabs">
-            <button className="panel-tab active">目录</button>
-          </div>
+          <span className="panel-title">目录</span>
           {onToggleBookmark && (
             <button
-              className={`toolbar-btn ${isCurrentBookmarked ? 'toolbar-btn-active' : ''}`}
+              className={`toolbar-btn panel-header-action ${isCurrentBookmarked ? 'toolbar-btn-active' : ''}`}
               onClick={onToggleBookmark}
               title={isCurrentBookmarked ? '取消书签' : '添加书签'}
             >
