@@ -122,7 +122,7 @@ a { color: var(--primary); text-decoration: none; }
   flex: 1;
   height: 100%;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 11px;
   cursor: pointer;
   transition: color 0.2s;
   border: none;
@@ -697,14 +697,14 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .toc-bookmark-meta {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   margin-top: 2px;
 }
 
 .toc-bookmark-delete {
-  width: 26px;
-  height: 26px;
+  width: 44px;
+  height: 44px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -773,8 +773,8 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .theme-color-btn {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: 3px solid transparent;
   cursor: pointer;
@@ -817,6 +817,10 @@ a { color: var(--primary); text-decoration: none; }
 .mode-btn {
   flex: 1;
   padding: 10px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: none;
@@ -944,7 +948,10 @@ a { color: var(--primary); text-decoration: none; }
   color: var(--primary);
   font-size: 15px;
   cursor: pointer;
-  padding: 6px 4px;
+  padding: 0 8px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -1044,9 +1051,13 @@ a { color: var(--primary); text-decoration: none; }
 
 .btn {
   padding: 10px 20px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 8px;
   border: none;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   cursor: pointer;
 }
@@ -1071,7 +1082,10 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .vocab-filter-btn {
-  padding: 6px 14px;
+  padding: 0 14px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
   border-radius: 16px;
   border: none;
   /* 这里是「填充底色」不是「边框」，单独用更浅的值，避免跟随 --border 变深显脏 */
@@ -1237,18 +1251,28 @@ a { color: var(--primary); text-decoration: none; }
   border-radius: var(--radius);
   padding: 16px;
   box-shadow: var(--shadow);
+  /* 统一高度，避免内容长短不一导致卡片高低错落 */
+  min-height: 88px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .stat-value {
   font-size: 24px;
   font-weight: 700;
   color: var(--primary);
+  /* 数值永不换行：长时长用紧凑格式（17h48m），极端情况省略 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
 }
 
 .stat-label {
-  font-size: 13px;
+  font-size: 15px;
   color: var(--text-secondary);
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .stats-chart {
@@ -1280,7 +1304,7 @@ a { color: var(--primary); text-decoration: none; }
 
 /* 柱子顶部的时长标签（1h20m / 45m），让用户一眼知道每根柱子代表多久 */
 .chart-bar-value {
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.2;
   color: var(--text-muted);
   margin-bottom: 4px;
@@ -1302,7 +1326,7 @@ a { color: var(--primary); text-decoration: none; }
 .chart-bar:hover { opacity: 1; }
 
 .chart-bar-label {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-muted);
   margin-top: 4px;
 }
@@ -1334,8 +1358,8 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .bookmark-delete {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1661,7 +1685,7 @@ a { color: var(--primary); text-decoration: none; }
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
   flex-shrink: 1;
   max-width: 55%;
 }
@@ -1700,7 +1724,7 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .note-expand-hint {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   font-weight: 400;
   margin-left: 8px;
@@ -1721,43 +1745,56 @@ a { color: var(--primary); text-decoration: none; }
   margin: 0;
 }
 
-.notes-tabs {
+/* iOS 标准分段控制器（Segmented Control）
+   用于 2-5 个互斥视图切换，各段等分撑满，选中项白底浮起 */
+.segmented-control {
   display: flex;
-  gap: 8px;
-  padding: 0 20px 10px;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 10px;
+  padding: 2px;
+  margin: 0 20px 16px;
 }
 
-.notes-tab {
+.segment {
+  flex: 1;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  padding: 8px 16px;
-  min-height: 44px;              /* Apple HIG 最小点击目标 */
-  border-radius: 22px;
-  border: 1px solid var(--border);
+  min-height: 40px;
+  padding: 0 8px;
+  border: none;
   background: none;
+  border-radius: 8px;
   color: var(--text-secondary);
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.notes-tab.active {
-  background: var(--primary);
-  color: #fff;
-  border-color: var(--primary);
+.segment.active {
+  background: var(--card-bg);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
-.notes-tab em {
+.segment em {
   font-style: normal;
-  font-size: 12px;
-  background: rgba(0,0,0,0.08);
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.08);
   border-radius: 10px;
   padding: 0 6px;
   line-height: 16px;
 }
 
-.notes-tab.active em { background: rgba(255,255,255,0.25); }
+.segment.active em {
+  background: rgba(0, 0, 0, 0.10);
+  color: var(--text-secondary);
+}
 
 .notes-actions {
   display: flex;
@@ -1766,7 +1803,10 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .notes-action-btn {
-  padding: 7px 14px;
+  padding: 0 14px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
   border-radius: 16px;
   border: 1px solid var(--border);
   background: var(--card-bg);

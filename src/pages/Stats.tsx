@@ -3,9 +3,10 @@ import { useAppStore } from '../stores';
 import { formatDuration, localDateStr } from '../utils';
 import { StatsIcon } from '../components/Icons';
 
-// 柱状图上方的紧凑时长（1h20m / 45m / <1m）
-function formatShortDuration(seconds: number): string {
-  if (seconds <= 0) return '';
+// 紧凑时长（17h48m / 45m / <1m）：用于统计卡片和柱状图标签。
+// 中文「17小时48分钟」在窄卡片里会换行，改用紧凑格式可一行放下。
+function formatCompact(seconds: number): string {
+  if (seconds <= 0) return '0m';
   if (seconds < 60) return '<1m';
   const totalMin = Math.round(seconds / 60);
   if (totalMin < 60) return `${totalMin}m`;
@@ -71,11 +72,11 @@ export default function Stats() {
 
       <div className="stats-summary">
         <div className="stat-card">
-          <div className="stat-value">{formatDuration(todaySeconds)}</div>
+          <div className="stat-value">{formatCompact(todaySeconds)}</div>
           <div className="stat-label">今日阅读</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{formatDuration(totalSeconds)}</div>
+          <div className="stat-value">{formatCompact(totalSeconds)}</div>
           <div className="stat-label">累计阅读</div>
         </div>
         <div className="stat-card">
@@ -102,7 +103,7 @@ export default function Stats() {
           {last7Days.map(day => (
             <div key={day.date} className="chart-bar-wrapper">
               <span className="chart-bar-value">
-                {day.seconds > 0 ? formatShortDuration(day.seconds) : '—'}
+                {day.seconds > 0 ? formatCompact(day.seconds) : '—'}
               </span>
               <div
                 className="chart-bar"

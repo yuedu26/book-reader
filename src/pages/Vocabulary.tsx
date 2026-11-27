@@ -138,14 +138,15 @@ export default function NotesPage() {
           </p>
         </div>
 
-        <div className="notes-tabs">
-          <button className={`notes-tab ${view === 'books' ? 'active' : ''}`} onClick={() => setView('books')}>
+        {/* iOS 标准分段控制器（Segmented Control）：2-5 个互斥视图切换 */}
+        <div className="segmented-control">
+          <button className={`segment ${view === 'books' ? 'active' : ''}`} onClick={() => setView('books')}>
             按书查看
           </button>
-          <button className={`notes-tab ${view === 'all' ? 'active' : ''}`} onClick={() => setView('all')}>
+          <button className={`segment ${view === 'all' ? 'active' : ''}`} onClick={() => setView('all')}>
             全部笔记
           </button>
-          <button className={`notes-tab ${view === 'words' ? 'active' : ''}`} onClick={() => setView('words')}>
+          <button className={`segment ${view === 'words' ? 'active' : ''}`} onClick={() => setView('words')}>
             全部单词
           </button>
         </div>
@@ -300,14 +301,15 @@ export default function NotesPage() {
         {activeMarks.length} 条划线 · {activeNotes.length} 条想法 · {activeVocab.length} 个生词
       </div>
 
-      <div className="notes-tabs">
-        <button className={`notes-tab ${detailTab === 'marks' ? 'active' : ''}`} onClick={() => setDetailTab('marks')}>
+      {/* iOS 标准分段控制器（Segmented Control） */}
+      <div className="segmented-control">
+        <button className={`segment ${detailTab === 'marks' ? 'active' : ''}`} onClick={() => setDetailTab('marks')}>
           划线 {activeMarks.length > 0 && <em>{activeMarks.length}</em>}
         </button>
-        <button className={`notes-tab ${detailTab === 'notes' ? 'active' : ''}`} onClick={() => setDetailTab('notes')}>
+        <button className={`segment ${detailTab === 'notes' ? 'active' : ''}`} onClick={() => setDetailTab('notes')}>
           想法 {activeNotes.length > 0 && <em>{activeNotes.length}</em>}
         </button>
-        <button className={`notes-tab ${detailTab === 'vocab' ? 'active' : ''}`} onClick={() => setDetailTab('vocab')}>
+        <button className={`segment ${detailTab === 'vocab' ? 'active' : ''}`} onClick={() => setDetailTab('vocab')}>
           生词 {activeVocab.length > 0 && <em>{activeVocab.length}</em>}
         </button>
       </div>
