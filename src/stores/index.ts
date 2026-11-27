@@ -14,9 +14,12 @@ export const themeMap: Record<ThemeName, { bg: string; text: string; name: strin
   dark:   { bg: '#1A1A1A', text: '#CCCCCC', name: '夜间黑' },
 };
 
+// 系统字体栈：iOS 用 San Francisco，中文自动落到苹方
+export const SYSTEM_FONT_STACK = '-apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+
 const defaultSettings: ReadingSettings = {
   fontSize: 16,
-  fontFamily: 'Georgia',
+  fontFamily: SYSTEM_FONT_STACK,   // 默认使用系统字体
   theme: 'white',
   lineHeight: 1.8,
   pageMode: 'paginated',

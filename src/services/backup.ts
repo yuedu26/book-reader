@@ -209,3 +209,63 @@ export function buildHighlightsText(highlights: Highlight[], books: Book[], note
 export function exportHighlightsAsText(highlights: Highlight[], books: Book[], notesOnly: boolean): void {
   downloadText(`${notesOnly ? '想法' : '划线'}_${new Date().toISOString().slice(0, 10)}.txt`, buildHighlightsText(highlights, books, notesOnly));
 }
+
+/**
+ * 生成 Markdown 格式的笔记（按书籍分组，可被各类笔记软件识别）
+ * notesOnly=true 时只导出带想法的条目
+ */
+export function buildNotesMarkdown(highlights: Highlight[], books: Book[], notesOnly: boolean): string {
+  const list = (notesOnly ? highlights.filter(h => h.note && h.note.trim().length > 0) : highlights)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+
+  const label = notesOnly ? '想法' : '笔记';
+  const lines: string[] = [];
+  lines.push(`# ${label}导出`);
+  lines.push('');
+  lines.push(`导出时间：${new Date().toLocaleString()}`);
+  lines.push(`共 ${list.length} 条`);
+  lines.push('');
+
+  // 按书籍分组
+  const byBook = new Map<string, Highlight[]>();
+  for (const h of list) {
+    const arr = byBook.get(h.bookId) || [];
+    arr.push(h);
+    byBook.set(h.bookId, arr);
+  }
+
+  for (const [bookId, items] of byBook) {
+    lines.push(`## ${bookTitleOf(books, bookId)}`);
+    lines.push('');
+    items.forEach((h) => {
+      // 引用块 + 想法
+      lines.push(`> ${h.text.replace(/\n+/g, ' ').trim()}`);
+      if (h.note && h.note.trim()) {
+        lines.push(`>`);
+        lines.push(`> 💭 ${h.note.trim()}`);
+      }
+      lines.push(`>`);
+      lines.push(`> <sub>${new Date(h.updatedAt).toLocaleDateString()}</sub>`);
+      lines.push('');
+    });
+    lines.push('---');
+    lines.push('');
+  }
+
+  if (list.length === 0) lines.push(`（暂无${label}）`);
+  return lines.join('\n');
+}
+
+/**
+ * 导出划线/想法为 Markdown
+ */
+export function exportHighlightsAsMarkdown(highlights: Highlight[], books: Book[], notesOnly: boolean): void {
+  const text = buildNotesMarkdown(highlights, books, notesOnly);
+  const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${notesOnly ? '想法' : '笔记'}_${new Date().toISOString().slice(0, 10)}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+}

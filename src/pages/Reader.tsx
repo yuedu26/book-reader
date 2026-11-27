@@ -937,7 +937,11 @@ export default function Reader() {
     if (!rendition) return;
     const theme = themeMap[settings.theme];
     const isDark = settings.theme === 'dark';
-    const fontStack = `${settings.fontFamily}, "Noto Serif SC", serif`;
+    // 字体栈：系统字体 / 无衬线字体后面不再追加 serif，否则会覆盖成衬线
+    const isSansFamily = /sans-serif|apple-system|PingFang/i.test(settings.fontFamily);
+    const fontStack = isSansFamily
+      ? settings.fontFamily
+      : `${settings.fontFamily}, "Noto Serif SC", serif`;
 
     rendition.themes.register('custom', {
       'body': {

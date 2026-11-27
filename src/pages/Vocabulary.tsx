@@ -6,6 +6,7 @@ import { TrashIcon, CheckIcon, VocabIcon, ChevronLeftIcon } from '../components/
 import type { VocabularyWord, Highlight, Book } from '../types';
 import {
   buildVocabularyText, exportVocabularyAsText, exportHighlightsAsText,
+  exportHighlightsAsMarkdown,
 } from '../services/backup';
 
 export default function NotesPage() {
@@ -16,6 +17,7 @@ export default function NotesPage() {
   const [copied, setCopied] = useState(false);
   const [swipedId, setSwipedId] = useState<string | null>(null); // 左滑删除中的单词
   const [expandedWordId, setExpandedWordId] = useState<string | null>(null); // 展开例句的单词
+  const [exportSheetOpen, setExportSheetOpen] = useState(false); // 导出 ActionSheet
   const touchStartXRef = useRef(0);
   const touchStartYRef = useRef(0);
 
@@ -132,10 +134,27 @@ export default function NotesPage() {
     return (
       <div className="page-content">
         <div className="notes-header">
-          <h1>笔记</h1>
-          <p className="notes-subtitle">
-            {bookStats.length} 本书 · 共 {highlights.length} 条标注
-          </p>
+          <div className="notes-header-row">
+            <div>
+              <h1>笔记</h1>
+              <p className="notes-subtitle">
+                {bookStats.length} 本书 · 共 {highlights.length} 条标注
+              </p>
+            </div>
+            {/* 导出入口（低频操作，放标题右侧图标按钮） */}
+            <button
+              className="toolbar-btn"
+              onClick={() => setExportSheetOpen(true)}
+              title="导出"
+              aria-label="导出"
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3v12" />
+                <path d="M8 7l4-4 4 4" />
+                <path d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* iOS 标准分段控制器（Segmented Control）：2-5 个互斥视图切换 */}
@@ -273,6 +292,66 @@ export default function NotesPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* 导出 ActionSheet（iOS 标准底部菜单） */}
+        {exportSheetOpen && (
+          <div className="action-sheet-overlay" onClick={() => setExportSheetOpen(false)}>
+            <div className="action-sheet" onClick={e => e.stopPropagation()}>
+              <div className="action-sheet-title">导出笔记</div>
+
+              <button
+                className="action-sheet-item"
+                onClick={() => {
+                  exportHighlightsAsMarkdown(highlights, books, false);
+                  setExportSheetOpen(false);
+                }}
+              >
+                全部笔记（划线 + 想法）
+                <span className="action-sheet-sub">Markdown</span>
+              </button>
+
+              <button
+                className="action-sheet-item"
+                onClick={() => {
+                  exportHighlightsAsMarkdown(highlights, books, true);
+                  setExportSheetOpen(false);
+                }}
+              >
+                仅想法
+                <span className="action-sheet-sub">Markdown</span>
+              </button>
+
+              <button
+                className="action-sheet-item"
+                onClick={() => {
+                  exportVocabularyAsText(vocabulary, books, false);
+                  setExportSheetOpen(false);
+                }}
+              >
+                全部单词（仅单词）
+                <span className="action-sheet-sub">TXT</span>
+              </button>
+
+              <button
+                className="action-sheet-item"
+                onClick={() => {
+                  exportVocabularyAsText(vocabulary, books, true);
+                  setExportSheetOpen(false);
+                }}
+              >
+                全部单词（含例句）
+                <span className="action-sheet-sub">TXT</span>
+              </button>
+
+              <button
+                className="action-sheet-item action-sheet-cancel"
+                onClick={() => setExportSheetOpen(false)}
+              >
+                取消
+              </button>
+            </div>
           </div>
         )}
       </div>
