@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore, themeMap } from './stores';
-import { shouldRemindBackup } from './services/backup';
+import { getBackupReminder, snoozeBackupReminder, exportBackup } from './services/backup';
 import Bookshelf from './pages/Bookshelf';
 import Reader from './pages/Reader';
 import Vocabulary from './pages/Vocabulary';
@@ -42,29 +42,58 @@ function TabBar() {
 
 function BackupReminder() {
   const [show, setShow] = useState(false);
+  const [info, setInfo] = useState<{ days: number; neverBackedUp: boolean }>({
+    days: 0,
+    neverBackedUp: false,
+  });
 
   useEffect(() => {
-    if (shouldRemindBackup()) {
-      const timer = setTimeout(() => setShow(true), 2000);
-      return () => clearTimeout(timer);
-    }
+    // 启动后延迟 2 秒再检查，避免和首屏渲染抢资源
+    const timer = setTimeout(() => {
+      const r = getBackupReminder();
+      if (r.shouldRemind) {
+        setInfo({ days: r.days, neverBackedUp: r.neverBackedUp });
+        setShow(true);
+      }
+    }, 2000);
+    return () => clearTimeout(timer);
   }, []);
+
+  // 稍后再说：重新计时，避免每次冷启动都弹
+  const handleSnooze = () => {
+    snoozeBackupReminder();
+    setShow(false);
+  };
+
+  // 立即备份：导出后关闭（exportBackup 内部会记录 lastBackupAt）
+  const handleBackupNow = () => {
+    try {
+      exportBackup();
+    } catch (e) {
+      console.warn('[BackupReminder] export failed:', e);
+    }
+    setShow(false);
+  };
 
   if (!show) return null;
 
+  const message = info.neverBackedUp
+    ? '你的笔记和阅读统计只存在本机，清理缓存或换设备会全部丢失。'
+    : `距离上次备份已 ${info.days} 天，建议导出备份以防数据丢失。`;
+
   return (
-    <div className="modal-overlay" onClick={() => setShow(false)}>
+    <div className="modal-overlay" onClick={handleSnooze}>
       <div className="modal-box" onClick={e => e.stopPropagation()}>
-        <h3>📦 备份提醒</h3>
-        <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-          距离上次备份已超过 7 天，建议导出备份以防数据丢失。
+        <h3>备份提醒</h3>
+        <p style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '8px 0 4px' }}>
+          {message}
+        </p>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 16px' }}>
+          备份文件不含书籍正文，恢复后需重新导入 EPUB。
         </p>
         <div className="modal-actions">
-          <button className="btn btn-secondary" onClick={() => setShow(false)}>稍后再说</button>
-          <button className="btn btn-primary" onClick={() => {
-            import('./services/backup').then(m => m.exportBackup());
-            setShow(false);
-          }}>立即备份</button>
+          <button className="btn btn-secondary" onClick={handleSnooze}>稍后再说</button>
+          <button className="btn btn-primary" onClick={handleBackupNow}>立即备份</button>
         </div>
       </div>
     </div>

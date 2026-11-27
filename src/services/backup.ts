@@ -104,36 +104,54 @@ export function exportNotes(bookId: string, bookTitle: string): void {
   URL.revokeObjectURL(url);
 }
 
+const FIRST_REMINDER_KEY = 'reader_pwa_first_backup_reminder';
+const REMIND_INTERVAL_DAYS = 7;
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
 /**
- * 检查是否需要备份提醒（超过7天）
+ * 备份提醒详情：返回是否需要提醒、距上次备份多少天、以及是否从未备份过
+ */
+export function getBackupReminder(): {
+  shouldRemind: boolean;
+  days: number;
+  neverBackedUp: boolean;
+} {
+  const state = useAppStore.getState();
+
+  // 没有任何书籍数据 → 无需提醒
+  if (state.books.length === 0) {
+    return { shouldRemind: false, days: 0, neverBackedUp: false };
+  }
+
+  // 从未备份过：从"首次发现需要备份"的时间点起算
+  if (state.lastBackupAt === 0) {
+    const raw = localStorage.getItem(FIRST_REMINDER_KEY);
+    if (!raw) {
+      // 首次发现有数据 → 立刻记录时间，并【立即提醒一次】
+      localStorage.setItem(FIRST_REMINDER_KEY, Date.now().toString());
+      return { shouldRemind: true, days: 0, neverBackedUp: true };
+    }
+    const days = Math.floor((Date.now() - parseInt(raw, 10)) / MS_PER_DAY);
+    return { shouldRemind: days >= REMIND_INTERVAL_DAYS, days, neverBackedUp: true };
+  }
+
+  // 备份过：超过 7 天未再次备份才提醒
+  const days = Math.floor((Date.now() - state.lastBackupAt) / MS_PER_DAY);
+  return { shouldRemind: days >= REMIND_INTERVAL_DAYS, days, neverBackedUp: false };
+}
+
+/**
+ * 检查是否需要备份提醒（超过 7 天）
  */
 export function shouldRemindBackup(): boolean {
-  const state = useAppStore.getState();
-  const lastBackup = state.lastBackupAt;
-  
-  // 首次使用，没有数据，不提醒
-  if (state.books.length === 0) return false;
-  
-  // 从未备份过，但有数据，先记录当前时间作为"首次发现需要备份"的时间
-  if (lastBackup === 0) {
-    // 检查是否有"首次提醒时间"记录
-    const firstReminderKey = 'reader_pwa_first_backup_reminder';
-    const firstReminder = localStorage.getItem(firstReminderKey);
-    
-    if (!firstReminder) {
-      // 首次发现有数据需要备份，记录时间但不提醒
-      localStorage.setItem(firstReminderKey, Date.now().toString());
-      return false;
-    }
-    
-    // 已经记录过，检查是否超过7天
-    const daysSinceFirstReminder = (Date.now() - parseInt(firstReminder)) / (1000 * 60 * 60 * 24);
-    return daysSinceFirstReminder >= 7;
-  }
-  
-  // 已经备份过，检查是否超过7天
-  const daysSince = (Date.now() - lastBackup) / (1000 * 60 * 60 * 24);
-  return daysSince >= 7;
+  return getBackupReminder().shouldRemind;
+}
+
+/**
+ * 用户点「稍后再说」后重新计时，避免每次冷启动都弹。
+ */
+export function snoozeBackupReminder(): void {
+  localStorage.setItem(FIRST_REMINDER_KEY, Date.now().toString());
 }
 
 /**
