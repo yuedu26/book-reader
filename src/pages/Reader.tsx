@@ -5,6 +5,7 @@ import ePub from 'epubjs';
 import { useAppStore, themeMap } from '../stores';
 import { getEpubFile } from '../services/db';
 import { generateId, copyTextToClipboard } from '../utils';
+import { computeParagraphRange, rangesAreEquivalent } from '../utils/paragraph';
 import {
   ChevronLeftIcon, ChevronRightIcon, CloseIcon, MoreIcon,
   ListIcon, SettingsIcon, BookmarkIcon, BookmarkFilledIcon,
@@ -131,6 +132,12 @@ export default function Reader() {
   const selectionPopupRef = useRef<typeof selectionPopup>(null); // 工具条当前状态（供 iframe 内点击判断）
   const popupShownAtRef = useRef(0); // 工具条显示时间（避免点击瞬间被 selected 事件隐藏）
   const markClickedAtRef = useRef(0); // 最近一次点击标注的时间（避免 touchend 的翻页逻辑清掉工具条造成闪烁）
+  // 选区弹出计时器提升到组件作用域：让「整段」能取消它，
+  // 防止整段成功后旧的 300ms 任务用旧快照覆盖扩展结果
+  const selectionShowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 轻量提示条（整段失败等场景）
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectionPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null); // 选择稳定轮询
   const readingStartRef = useRef(Date.now());
   const locationSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -614,8 +621,8 @@ export default function Reader() {
 
         // ===== 文本选择：基于 epub.js 自己的 selected 事件 =====
         // epub.js 内部已监听 selectionchange + 250ms 防抖 + 用 EpubCFI 生成 cfiRange。
-        // 我们只在其上再延迟 400ms 显示（接近 iOS 原生菜单的响应速度，又能避免拖手柄停顿误弹）。
-        let selectionShowTimer: ReturnType<typeof setTimeout> | null = null;
+        // 我们只在其上再延迟 300ms 显示（接近 iOS 原生菜单的响应速度，又能避免拖手柄停顿误弹）。
+        // 计时器已提升到组件作用域（selectionShowTimerRef），供「整段」取消。
 
         rendition.on('selected', (cfiRange: string, contents: any) => {
           if (destroyed) return;
@@ -642,8 +649,9 @@ export default function Reader() {
           }
 
           // 3) 重新计时：稳定 300ms 没有新的 selected 才显示（更接近 iOS 原生菜单手感）
-          if (selectionShowTimer) clearTimeout(selectionShowTimer);
-          selectionShowTimer = setTimeout(() => {
+          if (selectionShowTimerRef.current) clearTimeout(selectionShowTimerRef.current);
+          selectionShowTimerRef.current = setTimeout(() => {
+            selectionShowTimerRef.current = null;   // 执行后清引用，避免残留句柄
             if (destroyed) return;
             try {
               const snap = savedSelectionRef.current;
@@ -1213,103 +1221,121 @@ export default function Reader() {
     setSelectionPopup(null);
   };
 
-  // 选中整段（解决跨页选择：整段可跨页选中）
-  // 优先使用「选区快照」——工具条弹出后实时 selection 可能已丢失，快照更可靠
+  // 显示轻量提示条（整段失败等场景）；清理旧计时器避免新提示被提前关闭
+  const showToast = useCallback((msg: string) => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+    setToast(msg);
+    toastTimerRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, 2200);
+  }, []);
+
+  // 选中整段：把当前选区扩展为「首段开头 → 末段末尾」
+  //
+  // 支持范围（第一版）：
+  //   - 正文由常规块级元素构成（<p> / <div> / <li> / <blockquote> …）
+  //   - 容器内的「孤立文本」（如 <div>引言<p>…</p></div> 的"引言"）不支持，
+  //     此时提示并【保留原选区】，不修改 EPUB DOM
+  //   - 跨 iframe/document 不支持（rendition.getRange 只解析当前可见 view）
+  //
+  // 正确性保证：文本 + CFI 往返校验都通过后才提交业务状态；
+  // 原生 Selection 只做尽力同步（失败不影响业务目标）。
   const handleSelectParagraph = () => {
     if (!selectionPopup) return;
     const rendition = renditionRef.current;
     if (!rendition) {
-      console.warn('[Reader] 整段：rendition 不可用');
+      showToast('阅读器尚未就绪');
       return;
     }
 
-    const blockTags = ['P', 'DIV', 'LI', 'SECTION', 'BLOCKQUOTE', 'TD', 'H1', 'H2', 'H3', 'ARTICLE'];
-
-    // ===== 诊断日志：点击前的选区状态（便于真机排查）=====
+    // ===== 1) 取有效 Range：快照优先（用户点工具条前已保存）=====
     const snap = savedSelectionRef.current;
     const snapNode = snap?.range?.commonAncestorContainer;
-    const snapValid = !!(snap && snap.doc && snapNode && snap.doc.contains?.(snapNode));
-    console.debug('[Reader] 整段-点击前:', {
-      hasSnapshot: !!snap,
-      snapshotValid: snapValid,
-      snapshotTextLen: snap?.text?.length ?? 0,
-      popupCfi: selectionPopup.cfiRange,
-    });
+    const snapValid = !!(
+      snap &&
+      snap.doc &&
+      snapNode &&
+      snap.doc.contains(snapNode) &&
+      (snapNode as any).isConnected !== false
+    );
+
+    let range: Range | null = null;
+    let doc: any = null;
+
+    if (snapValid) {
+      range = snap!.range;
+      doc = snap!.doc;
+    } else if (selectionPopup.cfiRange) {
+      const r = rendition.getRange(selectionPopup.cfiRange);
+      if (r) {
+        range = r;
+        doc = r.commonAncestorContainer?.ownerDocument || r.startContainer?.ownerDocument || null;
+      }
+    }
+
+    if (!range || !doc) {
+      showToast('无法获取选区信息');
+      return;
+    }
+
+    const win = doc.defaultView;
+    if (!win) {
+      showToast('无法获取正文环境');
+      return;
+    }
 
     try {
-      // ===== 1) 取有效 Range：快照优先（校验节点仍在文档中），否则用 CFI 重新解析 =====
-      let range: Range | null = null;
-      let doc: any = null;
-      let source = 'none';
-
-      if (snapValid) {
-        range = snap!.range;
-        doc = snap!.doc;
-        source = 'snapshot';
-      } else if (selectionPopup.cfiRange) {
-        // rendition.getRange(cfi) 只从「当前可见 view」解析，返回 Range 或 undefined
-        const r = rendition.getRange(selectionPopup.cfiRange);
-        if (r) {
-          range = r;
-          doc = r.commonAncestorContainer?.ownerDocument || r.startContainer?.ownerDocument || null;
-          source = 'cfi';
-        }
+      // ===== 2) 计算段落范围（纯函数，已被单测覆盖）=====
+      const result = computeParagraphRange(range, doc, win);
+      if (!result.ok || !result.range || !result.text) {
+        showToast(result.reason || '无法识别段落边界');
+        return;   // 保留原选区，不做任何修改
       }
 
-      if (!range || !doc) {
-        console.warn('[Reader] 整段失败：无法获取有效 Range（快照失效且 CFI 解析失败）');
-        return;
-      }
+      const paraRange = result.range;
+      const text = result.text;
 
-      // ===== 2) 用起点节点向上找段落级元素 =====
-      // 注意：跨段选择时 commonAncestorContainer 可能是容器，用 startContainer 更贴近用户起点
-      let node: any = range.startContainer || range.commonAncestorContainer;
-      if (node?.nodeType === 3) node = node.parentNode; // Text 节点 → 父元素
-      while (node && node !== doc.body && !blockTags.includes(node.nodeName)) {
-        node = node.parentNode;
-      }
-      if (!node || node === doc.body) {
-        console.warn('[Reader] 整段失败：未找到段落级元素（startContainer 链上没有 P/DIV/LI 等）');
-        return;
-      }
-
-      // ===== 3) 构造段落范围 =====
-      const paraRange = doc.createRange();
-      paraRange.selectNodeContents(node);
-      if (paraRange.collapsed) {
-        console.warn('[Reader] 整段失败：段落内容为空');
-        return;
-      }
-
-      // ===== 4) 同步 iframe 内的可视选区 =====
-      const win = doc.defaultView;
-      const liveSel = win?.getSelection?.();
-      if (liveSel) {
-        liveSel.removeAllRanges();
-        liveSel.addRange(paraRange);
-      }
-
-      // ===== 5) 生成新 CFI（用 Contents.cfiFromRange，epub.js 官方接口）=====
+      // ===== 3) 生成 CFI 并做往返校验（失败则不提交任何状态）=====
       let cfiRange = '';
-      const contentsList = rendition.getContents?.() || [];
-      for (const c of contentsList) {
+      for (const c of (rendition.getContents?.() || [])) {
         if (c?.document === doc && typeof c.cfiFromRange === 'function') {
           cfiRange = c.cfiFromRange(paraRange);
           break;
         }
       }
       if (!cfiRange) {
-        console.warn('[Reader] 整段失败：无法从段落 Range 生成 CFI');
+        showToast('无法生成定位信息');
         return;
       }
 
-      const text = paraRange.toString().trim();
-      if (!text) {
-        console.warn('[Reader] 整段失败：段落文本为空');
+      const verifyRange = rendition.getRange(cfiRange);
+      if (!verifyRange || !rangesAreEquivalent(verifyRange, paraRange)) {
+        showToast('定位信息校验失败');
         return;
       }
 
-      // ===== 6) 主动同步：弹窗内容、快照、选区会话 =====
+      // ===== 4) 原生选区同步：尽力而为，失败不影响业务 =====
+      try {
+        const liveSel = win.getSelection?.();
+        if (liveSel) {
+          liveSel.removeAllRanges();
+          liveSel.addRange(paraRange);
+        }
+      } catch (e) {
+        console.warn('[Reader] 整段：原生选区同步失败（业务不受影响）', e);
+      }
+
+      // ===== 5) 取消尚未执行的旧显示任务，防止覆盖扩展结果 =====
+      if (selectionShowTimerRef.current) {
+        clearTimeout(selectionShowTimerRef.current);
+        selectionShowTimerRef.current = null;
+      }
+
+      // ===== 6) 一次性提交业务状态（文本 + CFI 均已校验通过）=====
       savedSelectionRef.current = {
         range: paraRange.cloneRange(),
         doc,
@@ -1317,10 +1343,33 @@ export default function Reader() {
         cfiRange,
       };
       lastSelectionActivityRef.current = Date.now();
-      setSelectionPopup({ ...selectionPopup, cfiRange, text });
-      console.debug('[Reader] 整段-成功:', { source, textLen: text.length, cfiRange });
+      popupShownAtRef.current = Date.now();
+
+      // 重新测量工具条位置，避免沿用旧选区位置
+      let popupY = selectionPopup.y;
+      let popupRectTop = selectionPopup.rectTop;
+      try {
+        const viewerEl = viewerRef.current;
+        if (viewerEl) {
+          const rect = paraRange.getBoundingClientRect();
+          const viewerRect = viewerEl.getBoundingClientRect();
+          if (rect && (rect.width > 0 || rect.height > 0)) {
+            popupY = rect.bottom - viewerRect.top + 8;
+            popupRectTop = rect.top - viewerRect.top;
+          }
+        }
+      } catch {}
+
+      setSelectionPopup({
+        ...selectionPopup,
+        y: popupY,
+        rectTop: popupRectTop,
+        text,
+        cfiRange,
+      });
     } catch (e) {
-      console.warn('[Reader] select paragraph failed:', e);
+      console.warn('[Reader] 整段失败:', e);
+      showToast('整段失败，请重试');
     }
   };
 
@@ -1837,6 +1886,9 @@ export default function Reader() {
           {chapterPage} / {chapterTotalPages}
         </div>
       )}
+
+      {/* 轻量提示条（如「整段」识别失败） */}
+      {toast && <div className="reader-toast">{toast}</div>}
 
       {/* 选择/标注工具条 */}
       {selectionPopup && (
