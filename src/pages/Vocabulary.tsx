@@ -17,6 +17,26 @@ export default function NotesPage() {
   const [swipedId, setSwipedId] = useState<string | null>(null); // 左滑删除中的单词
   const [expandedWordId, setExpandedWordId] = useState<string | null>(null); // 展开例句的单词
   const touchStartXRef = useRef(0);
+  const touchStartYRef = useRef(0);
+
+  // 统一的左滑判定：必须「以横向为主」才触发，
+  // 否则页面上下滚动时手指的轻微横向抖动会被误判为左滑，错误弹出删除按钮。
+  const handleSwipeStart = (e: React.TouchEvent) => {
+    touchStartXRef.current = e.touches[0].clientX;
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+  const handleSwipeEnd = (id: string, e: React.TouchEvent) => {
+    const dx = e.changedTouches[0].clientX - touchStartXRef.current;
+    const dy = e.changedTouches[0].clientY - touchStartYRef.current;
+    // 垂直位移超过 40px → 认为是在上下滚动，不做任何滑动操作
+    if (Math.abs(dy) > 40) return;
+    // 水平位移要明显大于垂直位移，且足够远
+    if (dx < -60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      setSwipedId(id);
+    } else if (dx > 30) {
+      setSwipedId(null);
+    }
+  };
 
   const books = useAppStore(s => s.books);
   const vocabulary = useAppStore(s => s.vocabulary);
@@ -143,12 +163,8 @@ export default function NotesPage() {
                 <div key={w.id} className="vocab-swipe-wrap">
                   <div
                     className={`note-item note-item-full ${swipedId === w.id ? 'note-item-swiped' : ''}`}
-                    onTouchStart={e => { touchStartXRef.current = e.touches[0].clientX; }}
-                    onTouchEnd={e => {
-                      const dx = e.changedTouches[0].clientX - touchStartXRef.current;
-                      if (dx < -50) setSwipedId(w.id);
-                      else if (dx > 30) setSwipedId(null);
-                    }}
+                    onTouchStart={handleSwipeStart}
+                    onTouchEnd={e => handleSwipeEnd(w.id, e)}
                   >
                     <div className="note-item-main">
                       <div className="note-word-row">
@@ -200,12 +216,8 @@ export default function NotesPage() {
                 <div key={h.id} className="vocab-swipe-wrap">
                   <div
                     className={`note-item note-item-full ${swipedId === h.id ? 'note-item-swiped' : ''}`}
-                    onTouchStart={e => { touchStartXRef.current = e.touches[0].clientX; }}
-                    onTouchEnd={e => {
-                      const dx = e.changedTouches[0].clientX - touchStartXRef.current;
-                      if (dx < -50) setSwipedId(h.id);
-                      else if (dx > 30) setSwipedId(null);
-                    }}
+                    onTouchStart={handleSwipeStart}
+                    onTouchEnd={e => handleSwipeEnd(h.id, e)}
                   >
                     <div className="note-item-main" onClick={() => goTo(h.bookId, h.cfiRange)}>
                       <div className="note-quote">“{h.text}”</div>
@@ -381,12 +393,8 @@ export default function NotesPage() {
                 {/* 可左滑的内容层 */}
                 <div
                   className={`vocab-card ${swipedId === w.id ? 'swiped' : ''}`}
-                  onTouchStart={e => { touchStartXRef.current = e.touches[0].clientX; }}
-                  onTouchEnd={e => {
-                    const dx = e.changedTouches[0].clientX - touchStartXRef.current;
-                    if (dx < -50) setSwipedId(w.id);        // 左滑 → 露出删除
-                    else if (dx > 30) setSwipedId(null);    // 右滑 → 收起
-                  }}
+                  onTouchStart={handleSwipeStart}
+                  onTouchEnd={e => handleSwipeEnd(w.id, e)}
                 >
                   <div className="vocab-card-header">
                     <span className="vocab-word">{w.word}</span>
