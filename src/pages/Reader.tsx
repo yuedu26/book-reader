@@ -412,7 +412,7 @@ export default function Reader() {
                 // 已到最后一页，继续后翻 → 显示读完完成页
                 finishedRef.current = true;
                 setFinishedOpen(true);
-                if (bookId) updateBook(bookId, { progress: 1, lastReadAt: Date.now() });
+                markBookFinished();
               } else {
                 rendition.next();
               }
@@ -421,12 +421,23 @@ export default function Reader() {
             }
           };
 
+          // 标记本书已读完（记录首次完成时间，供统计页使用）
+          const markBookFinished = () => {
+            if (!bookId) return;
+            const cur = useAppStore.getState().books.find(b => b.id === bookId);
+            updateBook(bookId, {
+              progress: 1,
+              lastReadAt: Date.now(),
+              finishedAt: cur?.finishedAt || Date.now(),   // 只记首次
+            });
+          };
+
           // 下一页（含读完完成页逻辑）
           const doNextPage = () => {
             if (atEndRef.current) {
               finishedRef.current = true;
               setFinishedOpen(true);
-              if (bookId) updateBook(bookId, { progress: 1, lastReadAt: Date.now() });
+              markBookFinished();
             } else {
               rendition.next();
             }
@@ -1073,7 +1084,14 @@ export default function Reader() {
     if (atEndRef.current) {
       finishedRef.current = true;
       setFinishedOpen(true);
-      if (bookId) updateBook(bookId, { progress: 1, lastReadAt: Date.now() });
+      if (bookId) {
+        const cur = useAppStore.getState().books.find(b => b.id === bookId);
+        updateBook(bookId, {
+          progress: 1,
+          lastReadAt: Date.now(),
+          finishedAt: cur?.finishedAt || Date.now(),
+        });
+      }
     } else {
       renditionRef.current?.next();
     }
@@ -1303,14 +1321,96 @@ export default function Reader() {
   };
 
   // Handle highlight
+  // 规则：如果新划线与已有「纯划线」重叠或首尾相接，则合并成一条（取并集）；
+  //       否则新建一条。想法（note 非空）不参与合并。
   const handleHighlight = () => {
     if (!selectionPopup || !bookId) return;
-    
-    // 确保 text 是字符串
-    const text = typeof selectionPopup.text === 'string' 
-      ? selectionPopup.text 
+
+    const text = typeof selectionPopup.text === 'string'
+      ? selectionPopup.text
       : String(selectionPopup.text || '');
-    
+
+    const rendition = renditionRef.current;
+
+    // ===== 1) 尝试与已有纯划线合并 =====
+    if (rendition) {
+      const newRange = rendition.getRange(selectionPopup.cfiRange);
+      if (newRange) {
+        const pureHighlights = useAppStore.getState().highlights.filter(
+          h => h.bookId === bookId && (!h.note || h.note.trim().length === 0)
+        );
+
+        for (const oldHl of pureHighlights) {
+          const oldRange = rendition.getRange(oldHl.cfiRange);
+          if (!oldRange) continue;
+
+          // 必须同一 document（同一章节）才能比较边界
+          const newDoc = newRange.startContainer?.ownerDocument;
+          const oldDoc = oldRange.startContainer?.ownerDocument;
+          if (!newDoc || !oldDoc || newDoc !== oldDoc) continue;
+
+          try {
+            const oldR = oldDoc.createRange();
+            oldR.setStart(oldRange.startContainer, oldRange.startOffset);
+            oldR.setEnd(oldRange.endContainer, oldRange.endOffset);
+
+            const newR = newDoc.createRange();
+            newR.setStart(newRange.startContainer, newRange.startOffset);
+            newR.setEnd(newRange.endContainer, newRange.endOffset);
+
+            // 重叠或首尾相接判定：oldR.end >= newR.start 且 newR.end >= oldR.start
+            const overlapping =
+              oldR.compareBoundaryPoints(Range.END_TO_START, newR) >= 0 &&
+              newR.compareBoundaryPoints(Range.END_TO_START, oldR) >= 0;
+            if (!overlapping) continue;
+
+            // 合并：起点取较早的，终点取较晚的
+            const merged = newDoc.createRange();
+            if (oldR.compareBoundaryPoints(Range.START_TO_START, newR) <= 0) {
+              merged.setStart(oldR.startContainer, oldR.startOffset);
+            } else {
+              merged.setStart(newR.startContainer, newR.startOffset);
+            }
+            if (oldR.compareBoundaryPoints(Range.END_TO_END, newR) >= 0) {
+              merged.setEnd(oldR.endContainer, oldR.endOffset);
+            } else {
+              merged.setEnd(newR.endContainer, newR.endOffset);
+            }
+
+            // 生成合并后的 CFI（用 Contents.cfiFromRange 官方接口）
+            let mergedCfi = '';
+            for (const c of (rendition.getContents?.() || [])) {
+              if (c?.document === newDoc && typeof c.cfiFromRange === 'function') {
+                mergedCfi = c.cfiFromRange(merged);
+                break;
+              }
+            }
+            if (!mergedCfi) continue;
+
+            const mergedText = merged.toString().trim();
+            if (!mergedText) continue;
+
+            // 更新旧标注 → 移除旧高亮 → 添加新高亮
+            updateHighlight(oldHl.id, {
+              cfiRange: mergedCfi,
+              text: mergedText,
+              updatedAt: Date.now(),
+            });
+            try {
+              rendition.annotations.remove(oldHl.cfiRange, 'highlight');
+            } catch {}
+            rendition.annotations.add('highlight', mergedCfi, {}, undefined, undefined, highlightStyles());
+
+            setSelectionPopup(null);
+            return;
+          } catch (e) {
+            console.warn('[Reader] merge highlight failed:', e);
+          }
+        }
+      }
+    }
+
+    // ===== 2) 没有可合并的 → 新建划线 =====
     const hl: Highlight = {
       id: generateId(),
       bookId,
@@ -1322,7 +1422,7 @@ export default function Reader() {
       updatedAt: Date.now(),
     };
     addHighlight(hl);
-    renditionRef.current?.annotations.add('highlight', hl.cfiRange, {}, undefined, undefined, highlightStyles());
+    rendition?.annotations.add('highlight', hl.cfiRange, {}, undefined, undefined, highlightStyles());
     setSelectionPopup(null);
   };
 

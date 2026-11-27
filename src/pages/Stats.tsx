@@ -1,7 +1,18 @@
 import React from 'react';
 import { useAppStore } from '../stores';
-import { formatDuration, formatDate, localDateStr } from '../utils';
+import { formatDuration, localDateStr } from '../utils';
 import { StatsIcon } from '../components/Icons';
+
+// 柱状图上方的紧凑时长（1h20m / 45m / <1m）
+function formatShortDuration(seconds: number): string {
+  if (seconds <= 0) return '';
+  if (seconds < 60) return '<1m';
+  const totalMin = Math.round(seconds / 60);
+  if (totalMin < 60) return `${totalMin}m`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m > 0 ? `${h}h${m}m` : `${h}h`;
+}
 
 export default function Stats() {
   const books = useAppStore(s => s.books);
@@ -14,6 +25,26 @@ export default function Stats() {
   const todaySeconds = readingStats
     .filter(s => s.date === todayStr)
     .reduce((sum, s) => sum + s.duration, 0);
+
+  // 已读完的书（progress ≥ 0.99）
+  const finishedBooks = books.filter(b => (b.progress ?? 0) >= 0.99);
+  // 完成时间：优先 finishedAt，老数据用 lastReadAt 兜底
+  const finishTimeOf = (b: typeof books[number]) => b.finishedAt || b.lastReadAt || 0;
+
+  const now = new Date();
+  const thisYear = now.getFullYear();
+  const thisMonth = now.getMonth();
+
+  const finishedThisYear = finishedBooks.filter(b => {
+    const t = finishTimeOf(b);
+    return t > 0 && new Date(t).getFullYear() === thisYear;
+  });
+  const finishedThisMonth = finishedBooks.filter(b => {
+    const t = finishTimeOf(b);
+    if (!t) return false;
+    const d = new Date(t);
+    return d.getFullYear() === thisYear && d.getMonth() === thisMonth;
+  });
 
   // Last 7 days chart
   const last7Days = Array.from({ length: 7 }, (_, i) => {
@@ -55,6 +86,14 @@ export default function Stats() {
           <div className="stat-value">{vocabulary.length}</div>
           <div className="stat-label">生词数量</div>
         </div>
+        <div className="stat-card">
+          <div className="stat-value">{finishedThisYear.length}</div>
+          <div className="stat-label">今年读完</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{finishedThisMonth.length}</div>
+          <div className="stat-label">本月读完</div>
+        </div>
       </div>
 
       <div className="stats-chart">
@@ -62,6 +101,9 @@ export default function Stats() {
         <div className="chart-bars">
           {last7Days.map(day => (
             <div key={day.date} className="chart-bar-wrapper">
+              <span className="chart-bar-value">
+                {day.seconds > 0 ? formatShortDuration(day.seconds) : '—'}
+              </span>
               <div
                 className="chart-bar"
                 style={{ height: `${(day.seconds / maxDaySeconds) * 100}%` }}

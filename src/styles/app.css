@@ -1271,6 +1271,16 @@ a { color: var(--primary); text-decoration: none; }
   justify-content: flex-end;
 }
 
+/* 柱子顶部的时长标签（1h20m / 45m），让用户一眼知道每根柱子代表多久 */
+.chart-bar-value {
+  font-size: 9px;
+  line-height: 1.2;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .chart-bar {
   width: 100%;
   max-width: 32px;
@@ -1279,6 +1289,7 @@ a { color: var(--primary); text-decoration: none; }
   min-height: 2px;
   opacity: 0.7;
   transition: opacity 0.2s;
+  flex-shrink: 0;
 }
 
 .chart-bar:hover { opacity: 1; }

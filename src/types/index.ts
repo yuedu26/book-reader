@@ -11,6 +11,7 @@ export interface Book {
   addedAt: number;
   lastReadAt: number;
   fileName: string;
+  finishedAt?: number; // 首次读完的时间（用于统计"今年/本月读完"）
 }
 
 // 章节类型
