@@ -11,9 +11,9 @@
   --success: #4CAF50;
   --shadow: 0 2px 8px rgba(0,0,0,0.08);
   --radius: 12px;
-  /* 笔记/生词卡片「浮起」底色：浅色主题用半透明白叠加在页面底色上会变更亮，
-     由此与背景形成层次（不需要边框） */
-  --card-surface: rgba(255, 255, 255, 0.60);
+  /* 笔记/生词卡片「浮起」底色：必须是【不透明实色】，
+     否则会透出卡片背后绝对定位的红色「删除」按钮（滑动删除用） */
+  --card-surface: #FFFFFF;
   --tab-height: 64px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -24,6 +24,8 @@
   --card-bg: #d5f0d9;
   /* 浅色主题必须单独定义边框色：默认的浅灰白在彩色背景上几乎不可见 */
   --border: rgba(0, 0, 0, 0.13);
+  /* 绿底叠 60% 白 → 更亮的浅绿，卡片得以浮起 */
+  --card-surface: #E4F6E7;
 }
 
 [data-theme="yellow"] {
@@ -31,6 +33,7 @@
   --text: #333333;
   --card-bg: #fdfbe8;
   --border: rgba(0, 0, 0, 0.12);
+  --card-surface: #FCFBF0;
 }
 
 [data-theme="brown"] {
@@ -38,6 +41,7 @@
   --text: #333333;
   --card-bg: #fff5ea;
   --border: rgba(0, 0, 0, 0.12);
+  --card-surface: #FFF8F5;
 }
 
 [data-theme="dark"] {
