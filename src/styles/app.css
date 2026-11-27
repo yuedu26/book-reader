@@ -11,9 +11,10 @@
   --success: #4CAF50;
   --shadow: 0 2px 8px rgba(0,0,0,0.08);
   --radius: 12px;
-  /* 笔记/生词卡片「浮起」底色：必须是【不透明实色】，
-     否则会透出卡片背后绝对定位的红色「删除」按钮（滑动删除用） */
-  --card-surface: #FFFFFF;
+  /* 笔记/生词卡片「浮起」底色（仅用于 全部笔记 / 全部单词 / 生词 / 书详情）。
+     必须是【不透明实色】：半透明会透出卡片背后绝对定位的红色「删除」按钮。
+     注意：不要复用 --card-bg，那个还供工具栏/Tab/弹窗使用，改了会波及它们。 */
+  --card-surface: #F5F5F7;
   --tab-height: 64px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -33,7 +34,8 @@
   --text: #333333;
   --card-bg: #fdfbe8;
   --border: rgba(0, 0, 0, 0.12);
-  --card-surface: #FCFBF0;
+  /* 纯白卡片浮在米黄底上，对比最清晰 */
+  --card-surface: #FFFFFF;
 }
 
 [data-theme="brown"] {
@@ -41,7 +43,8 @@
   --text: #333333;
   --card-bg: #fff5ea;
   --border: rgba(0, 0, 0, 0.12);
-  --card-surface: #FFF8F5;
+  /* 纯白卡片浮在浅棕底上 */
+  --card-surface: #FFFFFF;
 }
 
 [data-theme="dark"] {
