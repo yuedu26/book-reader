@@ -1335,13 +1335,25 @@ export default function Reader() {
     // ===== 1) 尝试与已有纯划线合并 =====
     if (rendition) {
       const newRange = rendition.getRange(selectionPopup.cfiRange);
-      if (newRange) {
-        const pureHighlights = useAppStore.getState().highlights.filter(
-          h => h.bookId === bookId && (!h.note || h.note.trim().length === 0)
-        );
+      const allHls = useAppStore.getState().highlights;
+      const pureHighlights = allHls.filter(
+        h => h.bookId === bookId && (!h.note || h.note.trim().length === 0)
+      );
 
+      console.log('[合并诊断] 开始:', {
+        newCfi: selectionPopup.cfiRange,
+        hasNewRange: !!newRange,
+        allHighlights: allHls.length,
+        pureCount: pureHighlights.length,
+      });
+
+      if (newRange) {
         for (const oldHl of pureHighlights) {
           const oldRange = rendition.getRange(oldHl.cfiRange);
+          console.log('[合并诊断] 候选:', oldHl.id, {
+            oldCfi: oldHl.cfiRange,
+            hasOldRange: !!oldRange,
+          });
           if (!oldRange) continue;
 
           // 必须同一 document（同一章节）才能比较边界
@@ -1359,9 +1371,15 @@ export default function Reader() {
             newR.setEnd(newRange.endContainer, newRange.endOffset);
 
             // 重叠或首尾相接判定：oldR.end >= newR.start 且 newR.end >= oldR.start
-            const overlapping =
-              oldR.compareBoundaryPoints(Range.END_TO_START, newR) >= 0 &&
-              newR.compareBoundaryPoints(Range.END_TO_START, oldR) >= 0;
+            const cmp1 = oldR.compareBoundaryPoints(Range.END_TO_START, newR);
+            const cmp2 = newR.compareBoundaryPoints(Range.END_TO_START, oldR);
+            const overlapping = cmp1 >= 0 && cmp2 >= 0;
+            console.log('[合并诊断] 边界比较:', {
+              sameDoc: newDoc === oldDoc,
+              oldEndVsNewStart: cmp1,
+              newEndVsOldStart: cmp2,
+              overlapping,
+            });
             if (!overlapping) continue;
 
             // 合并：起点取较早的，终点取较晚的
